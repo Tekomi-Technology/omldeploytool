@@ -3,7 +3,7 @@
 #################### containers img tags  ################################
 
 # --- OMniLeads core application images
-nginx_img: docker.io/omnileads/nginx:20260515-e9a992f9
+nginx_img: docker.io/omnileads/nginx:20260824-debff82b
 websockets_img: docker.io/omnileads/websockets:20250825-3b0448ff
 
 asterisk_retrieve_conf_img: docker.io/omnileads/acd_retrieve_conf:20250825-47b3aa78
@@ -15,7 +15,7 @@ call_logger_img: docker.io/omnileads/chan_tel_logger:20250826-0cd256e4
 callrec_compressor_img: docker.io/omnileads/callrec_compressor:20251203-7de4a125
 callrec_transcriber_img: docker.io/omnileads/callrec_transcriber:20251203-7de4a125
 # --- OMnidialer components images
-dialer_api_img: docker.io/omnileads/dialer_api:20251125-8aef0813
+dialer_api_img: docker.io/omnileads/dialer_api:20260824-0c0e3e2d
 dialer_listener_img: docker.io/omnileads/dialer_listener:20251125-8aef0813
 dialer_worker_img: docker.io/omnileads/dialer_worker:20251125-8aef0813
 dialer_dialplan_img: docker.io/omnileads/dialer_dialplan:20251125-8aef0813

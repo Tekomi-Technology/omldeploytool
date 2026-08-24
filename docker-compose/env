@@ -28,12 +28,12 @@ GATEWAY=10.22.22.254
 ###################################################################################################
 
 # --- OMniLeads images WEB
-OML_APP_IMG=docker.io/omnileads/omlapp:20260601-9a7787e0
-OML_NGINX_IMG=docker.io/omnileads/nginx:20260515-e9a992f9
+OML_APP_IMG=docker.io/omnileads/omlapp:20260824-7aec5d3b
+OML_NGINX_IMG=docker.io/omnileads/nginx:20260824-debff82b
 OML_WS_IMG=docker.io/omnileads/websockets:20250825-3b0448ff
 
 # --- OMniLeads images TEL
-OML_ACD_IMG=docker.io/omnileads/asterisk:20260515-cf88f33c
+OML_ACD_IMG=docker.io/omnileads/asterisk:20260727-432d7633
 OML_ACD_CONF_IMG=docker.io/omnileads/acd_retrieve_conf:20250825-47b3aa78
 OML_FASTAGI_IMG=docker.io/omnileads/fastagi:20260213-da00c122
 OML_AMI_IMG=docker.io/omnileads/astami:20250825-5d38d2e1
@@ -43,7 +43,7 @@ OML_ACD_CALL_LOGGER_IMG=docker.io/omnileads/chan_tel_logger:20250826-0cd256e4
 OML_CALLREC_COMPRESSOR_IMG=docker.io/omnileads/callrec_compressor:20251203-7de4a125
 OML_CALLREC_TRANSCRIBER_IMG=docker.io/omnileads/callrec_transcriber:20251203-7de4a125
 # --- OMniLeads images DIALER
-DIALER_API_IMG=docker.io/omnileads/dialer_api:20251125-8aef0813
+DIALER_API_IMG=docker.io/omnileads/dialer_api:20260824-0c0e3e2d
 DIALER_ACD_IMG=docker.io/omnileads/dialer_asterisk:20251125-8aef0813
 DIALER_ACD_LISTENER_IMG=docker.io/omnileads/dialer_listener:20251125-8aef0813
 DIALER_ACD_DIALPLAN_IMG=docker.io/omnileads/dialer_dialplan:20251125-8aef0813
@@ -243,6 +243,7 @@ NGINX_WEBUI_MODE=static
 NGINX_WALLBOARD_WEBUI_PATH=/opt/omnileads/static/webui-wallboard
 NGINX_PREMIUMREPORTS_WEBUI_PATH=/opt/omnileads/static/webui-premiumreports
 NGINX_SURVEY_WEBUI_PATH=/opt/omnileads/static/webui-survey
+APP_WEBUI_PATH=/opt/omnileads/static/webui-app
 # -----------------------------------------------------------------------------
 # --- IP or hostname that each instance will invoke when locating the other    
 # "${OML_HOSTNAME}" is the prod profile or "redis" is the dev profile
