@@ -393,6 +393,10 @@ services:
     ports:
       - ${UWSGI_EXT_BIND_IP:-0.0.0.0}:${DAPHNE_EXT_PORT:-8098}:8098/tcp
   
+  email_events_processor:
+    <<: *django-worker-common
+    command: /opt/omnileads/bin/init_email_fetch_service.sh
+  
   whatsapp:
     <<: *django-worker-common
     command: /opt/omnileads/bin/init_whatsapp.sh

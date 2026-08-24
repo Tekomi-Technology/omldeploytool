@@ -58,6 +58,7 @@
         - daphne.service
         - background_tasks.service
         - background_dialer_tasks.service
+        - email_events_processor.service
         - whatsapp.service
       tags:
         - install
@@ -85,6 +86,7 @@
         - daphne.service
         - background_tasks.service
         - background_dialer_tasks.service
+        - email_events_processor.service
         - whatsapp.service
       tags:
         - upgrade
@@ -92,6 +94,7 @@
         - restart_django
         - restart_core
         - restart_background_tasks
+        - restart_email_events_processor
         - restart_whatsapp
         - restart_core
       when: 

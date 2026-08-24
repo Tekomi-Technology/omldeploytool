@@ -29,6 +29,7 @@ case "$ENDSTATE" in
   BACKUP|FAULT)
     run "stop nginx"                 "$SYSTEMCTL" stop nginx
     run "stop ami"                   "$SYSTEMCTL" stop ami
+    run "stop email_events_processor""$SYSTEMCTL" stop email_events_processor
     run "stop whatsapp"              "$SYSTEMCTL" stop whatsapp
     run "stop background_tasks"      "$SYSTEMCTL" stop background_tasks
     run "stop omnileads"             "$SYSTEMCTL" stop omnileads
@@ -45,6 +46,7 @@ case "$ENDSTATE" in
     run "start ami"                     "$SYSTEMCTL" start ami
     run "start omnileads"               "$SYSTEMCTL" start omnileads
     run "start daphne"                  "$SYSTEMCTL" start daphne
+    run "start email_events_processor"  "$SYSTEMCTL" start email_events_processor
     run "start whatsapp"                "$SYSTEMCTL" start whatsapp
     run "start background_tasks"        "$SYSTEMCTL" start background_tasks
     run "start background_dialer_tasks" "$SYSTEMCTL" start background_dialer_tasks

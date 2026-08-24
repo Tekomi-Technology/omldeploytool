@@ -51,6 +51,7 @@
       - { src: "{{ django_repo_path }}templates/django.service", dest: "/etc/systemd/system/omnileads.service" }
       - { src: "{{ django_repo_path }}templates/background_callrec_tasks.service", dest: "/etc/systemd/system/background_tasks.service" }
       - { src: "{{ django_repo_path }}templates/background_dialer_tasks.service", dest: "/etc/systemd/system/background_dialer_tasks.service" }
+      - { src: "{{ django_repo_path }}templates/email_events_processor.service", dest: "/etc/systemd/system/email_events_processor.service" }
       - { src: "{{ django_repo_path }}templates/whatsapp.service", dest: "/etc/systemd/system/whatsapp.service" }
       - { src: "{{ django_repo_path }}templates/daphne.service", dest: "/etc/systemd/system/daphne.service" }
     tags:
@@ -109,6 +110,7 @@
       - omnileads.service
       - background_tasks.service
       - background_dialer_tasks.service
+      - email_events_processor.service
       - whatsapp.service
     tags:
       - install
@@ -136,6 +138,7 @@
       - omnileads.service
       - background_tasks.service
       - background_dialer_tasks.service
+      - email_events_processor.service
       - whatsapp.service
     tags:
       - upgrade
@@ -143,6 +146,7 @@
       - restart_django
       - restart_core
       - restart_background_tasks
+      - restart_email_events_processor
       - restart_whatsapp
     when:       
       - inventory_hostname in groups['omnileads_app'] or inventory_hostname in groups['omnileads_aio']    

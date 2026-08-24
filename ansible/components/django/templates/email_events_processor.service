@@ -1,0 +1,38 @@
+[Unit]
+Description=Podman email-events-processor.service
+Documentation=man:podman-generate-systemd(1)
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=%t/containers
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Environment=PODMAN_SYSTEMD_UNIT=%n
+Restart=always
+RestartSec=10
+TimeoutStopSec=70
+ExecStartPre=/bin/rm -f %t/%n.ctr-id
+ExecStart=/usr/bin/podman run \
+--cidfile=%t/%n.ctr-id \
+--cgroups=no-conmon \
+--sdnotify=conmon \
+--replace \
+--detach \
+--network=host \
+--log-driver=journald \
+--env-file=/etc/default/django.env \
+-e GOOGLE_MAPS_CENTER='{{ google_maps_center }}' \
+--name=oml-email-events-processor-worker \
+--volume=django_media:/opt/omnileads/media_root \
+--label tier=omlapp \
+{{ omnileads_img }} /opt/omnileads/bin/init_email_fetch_service.sh
+ExecStop=/usr/bin/podman stop --ignore --cidfile=%t/%n.ctr-id
+ExecStopPost=/usr/bin/podman rm -f --ignore --cidfile=%t/%n.ctr-id
+Type=notify
+NotifyAccess=all
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

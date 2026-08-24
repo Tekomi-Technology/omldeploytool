@@ -110,6 +110,7 @@ scrape_configs:
   {'name': 'asterisk', 'unit': 'asterisk.service', 'family': 'telephony'},
   {'name': 'asterisk_retrieve_conf', 'unit': 'asterisk_retrieve_conf.service', 'family': 'telephony'},
   {'name': 'nginx', 'unit': 'nginx.service', 'family': 'omnileads'},
+  {'name': 'email_events_processor', 'unit': 'email_events_processor.service', 'family': 'omnileads'},
   {'name': 'whatsapp', 'unit': 'whatsapp.service', 'family': 'omnileads'},
   {'name': 'omnileads', 'unit': 'omnileads.service', 'family': 'omnileads'},
   {'name': 'astami', 'unit': 'astami.service', 'family': 'communication'},

@@ -345,6 +345,19 @@ services:
       - django_callrec_zip:/opt/omnileads/asterisk/var/spool/asterisk/monitor
       - ${REPO_PATH}/django/:/opt/omnileads/ominicontacto/
   
+  email_events_processor:
+    <<: *django-common
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: /opt/omnileads/bin/init_email_fetch_service.sh
+    working_dir: /opt/omnileads/ominicontacto
+    stop_grace_period: 30s
+    volumes:
+      - ${REPO_PATH}/django/:/opt/omnileads/ominicontacto/
+  
   whatsapp:
     <<: *django-common
     depends_on:
