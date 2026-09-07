@@ -223,6 +223,10 @@ KAMAILIO_WEBRTC_HOSTNAME=127.0.0.1
 KAMAILIO_WEBRTC_SIP_PORT=10060
 KAMAILIO_HTTPS_PORT=14443
 KAMAILIO_CERTS_LOCATION=/etc/kamailio/certs
+# Tekomi: public IP bound by Kamailio UDP socket for devices (softphone/IPPhone).
+# Empty = same as OML_HOSTNAME (see compose default). Required, Kamailio fails
+# to start if the resulting listen address is invalid.
+#KAMAILIO_PUBLIC_IP=
 
 # Variables for Kamailio memory. SHM is the maximum memory ammount.
 # PKG is the minimum memory ammount
