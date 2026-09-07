@@ -19,6 +19,7 @@ COPY ominicontacto_app/management/commands/verificar_families_redis.py /opt/omni
 COPY ominicontacto_app/management/commands/cron_tick_5.py /opt/omnileads/ominicontacto/ominicontacto_app/management/commands/cron_tick_5.py
 COPY ominicontacto_app/forms/base.py /opt/omnileads/ominicontacto/ominicontacto_app/forms/base.py
 COPY ominicontacto_app/views_user_profiles.py /opt/omnileads/ominicontacto/ominicontacto_app/views_user_profiles.py
+COPY ominicontacto_app/asterisk_config_generador_de_partes.py /opt/omnileads/ominicontacto/ominicontacto_app/asterisk_config_generador_de_partes.py
 RUN python3 -m compileall -q \
   /opt/omnileads/ominicontacto/ominicontacto_app/services/sip_devices.py \
   /opt/omnileads/ominicontacto/ominicontacto_app/services/asterisk/redis_database.py \
@@ -26,4 +27,5 @@ RUN python3 -m compileall -q \
   /opt/omnileads/ominicontacto/ominicontacto_app/management/commands/verificar_families_redis.py \
   /opt/omnileads/ominicontacto/ominicontacto_app/forms/base.py \
   /opt/omnileads/ominicontacto/ominicontacto_app/views_user_profiles.py \
+  /opt/omnileads/ominicontacto/ominicontacto_app/asterisk_config_generador_de_partes.py \
   && echo OVERLAY-OK
