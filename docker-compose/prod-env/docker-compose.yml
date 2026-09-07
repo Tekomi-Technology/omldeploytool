@@ -534,6 +534,9 @@ services:
     - asterisk_callrec:/var/spool/asterisk/monitor/
     - asterisk_conf:/etc/asterisk/retrieve_conf
     - asterisk_sounds:/var/lib/asterisk/sounds
+    # Tekomi: override wizard template (agent allow=opus,alaw,ulaw for
+    # softphone/IPPhone support). Remove mount to revert to upstream default.
+    - ../custom/asterisk/oml_pjsip_wizard.conf:/etc/asterisk/oml_pjsip_wizard.conf:ro
     # - ./.custom_conf/extensions.conf:/etc/asterisk/oml_extensions_custom.conf:ro
     
   fastagi:
