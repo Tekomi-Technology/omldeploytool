@@ -637,6 +637,10 @@ services:
     logging: *default-logging
     stop_grace_period: 10s    
     network_mode: host
+    volumes:
+      # Tekomi: override kamailio.cfg con auth de dispositivos (softphone/IPPhone).
+      # Quitar el mount para volver al comportamiento upstream.
+      - ../custom/kamailio-webrtc/kamailio.cfg:/etc/kamailio/kamailio.cfg:ro
     # volumes:
     #   - ./certs/:${KAMAILIO_CERTS_LOCATION}
 
