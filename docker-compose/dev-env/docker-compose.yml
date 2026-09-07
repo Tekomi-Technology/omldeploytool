@@ -775,6 +775,11 @@ services:
       dockerfile: Dockerfile
       target: run
     image: ${OML_CALLREC_TRANSCRIBER_IMG}
+    # Tekomi: STT transcriber disabled by default (heavy CPU: ~1 core per
+    # 5-10 concurrent transcriptions). Re-enable with
+    # `docker compose --profile transcriber up -d callrec-transcriber`.
+    profiles:
+      - transcriber
     depends_on:
       minio:
         condition: service_healthy
