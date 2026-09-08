@@ -22,6 +22,7 @@ COPY ominicontacto_app/views_user_profiles.py /opt/omnileads/ominicontacto/omini
 COPY ominicontacto_app/asterisk_config_generador_de_partes.py /opt/omnileads/ominicontacto/ominicontacto_app/asterisk_config_generador_de_partes.py
 COPY tekomi_crm_bridge_adapter /opt/omnileads/ominicontacto/tekomi_crm_bridge_adapter
 COPY ominicontacto/urls.py /opt/omnileads/ominicontacto/ominicontacto/urls.py
+COPY ominicontacto/settings/defaults.py /opt/omnileads/ominicontacto/ominicontacto/settings/defaults.py
 RUN python3 -m compileall -q \
   /opt/omnileads/ominicontacto/ominicontacto_app/services/sip_devices.py \
   /opt/omnileads/ominicontacto/ominicontacto_app/services/asterisk/redis_database.py \
@@ -32,4 +33,5 @@ RUN python3 -m compileall -q \
   /opt/omnileads/ominicontacto/ominicontacto_app/asterisk_config_generador_de_partes.py \
   /opt/omnileads/ominicontacto/tekomi_crm_bridge_adapter/views.py \
   /opt/omnileads/ominicontacto/ominicontacto/urls.py \
+  /opt/omnileads/ominicontacto/ominicontacto/settings/defaults.py \
   && echo OVERLAY-OK
