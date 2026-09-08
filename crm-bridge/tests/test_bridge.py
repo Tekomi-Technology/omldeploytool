@@ -33,7 +33,7 @@ class BridgeTests(unittest.TestCase):
     def test_sync_is_upsert_only(self):
         self.assertEqual(self.bridge.sync_contacts(), {'seen': 1, 'changed': 1})
         self.assertEqual(self.bridge.sync_contacts(), {'seen': 1, 'changed': 0})
-        self.assertEqual(len(self.omni.calls), 1)
+        self.assertEqual(len(self.omni.calls), 2)
         self.assertEqual(self.omni.calls[0][0]['external_id'], 'crm:contact:11')
     def test_ticket_is_agent_action_and_idempotent(self):
         self.bridge.sync_contacts()

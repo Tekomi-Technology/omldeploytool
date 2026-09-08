@@ -150,7 +150,13 @@ class Bridge:
                 'phone': normalize_phone(phone), 'company': customer.get('company', ''),
                 'first_name': item.get('firstname', ''), 'last_name': item.get('lastname', ''), 'email': item.get('email', '')})
         changed = self.store.upsert_contacts(contacts)
-        if changed: self.omni.sync(changed)
+        # The OmniLeads endpoint is idempotent.  Forward the current CRM
+        # snapshot even when the bridge's local hash has not changed: a prior
+        # attempt may have persisted the hash locally but failed before the
+        # request reached OmniLeads.  This makes the next scheduled/manual run
+        # a safe delivery retry, without ever deleting or inactivating data.
+        if contacts:
+            self.omni.sync(contacts)
         self.store.audit('crm_sync', 'contacts', {'seen': len(contacts), 'changed': len(changed)})
         return {'seen': len(contacts), 'changed': len(changed)}
     def create_ticket(self, call_id, request_id, data):
