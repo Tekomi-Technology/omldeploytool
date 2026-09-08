@@ -784,6 +784,7 @@ services:
       BRIDGE_DB_PATH: /var/lib/crm-bridge/bridge.sqlite3
       CRM_BASE_URL: ${CRM_BASE_URL}
       CRM_API_TOKEN: ${CRM_API_TOKEN}
+      CRM_REQUEST_INTERVAL_SECONDS: ${CRM_REQUEST_INTERVAL_SECONDS:-1.5}
       OML_SYNC_URL: http://django-app:${UWSGI_PORT}/api/v1/tekomi-crm-bridge/contacts/sync/
       BRIDGE_API_KEY: ${CRM_BRIDGE_API_KEY}
       BRIDGE_SHARED_SECRET: ${CRM_BRIDGE_SHARED_SECRET}

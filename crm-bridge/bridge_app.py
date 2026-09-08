@@ -92,15 +92,24 @@ def normalize_phone(value):
 
 
 class CrmClient:
-    def __init__(self, base_url, token, http=requests):
+    """CRM client with a small global interval to avoid bursty pagination traffic."""
+    def __init__(self, base_url, token, http=requests, min_interval=1.5, sleeper=time.sleep, clock=time.monotonic):
         self.base_url, self.token, self.http = base_url.rstrip('/'), token, http
+        self.min_interval, self.sleeper, self.clock, self.last_request = float(min_interval), sleeper, clock, None
     @property
-    def headers(self): return {'Authorization': 'Bearer ' + self.token, 'Content-Type': 'application/json'}
+    def headers(self): return {'Authorization': 'Bearer ' + self.token, 'Content-Type': 'application/json', 'User-Agent': 'Tekomi-CRM-Bridge/1.0'}
+    def _request(self, method, path, **kwargs):
+        if self.last_request is not None:
+            wait = self.min_interval - (self.clock() - self.last_request)
+            if wait > 0:
+                self.sleeper(wait)
+        response = getattr(self.http, method)(self.base_url + path, headers=self.headers, timeout=15, **kwargs)
+        self.last_request = self.clock()
+        return response
     def list_all(self, resource):
         page, result = 1, []
         while True:
-            response = self.http.get(self.base_url + '/' + resource, headers=self.headers,
-                                     params={'page': page, 'per_page': 100}, timeout=15)
+            response = self._request('get', '/' + resource, params={'page': page, 'per_page': 100})
             response.raise_for_status(); body = response.json(); data = body.get('data', body)
             result.extend(data if isinstance(data, list) else [])
             meta = body.get('meta', {})
@@ -108,7 +117,7 @@ class CrmClient:
             page += 1
         return result
     def create_ticket(self, payload):
-        response = self.http.post(self.base_url + '/tickets', headers=self.headers, json=payload, timeout=15)
+        response = self._request('post', '/tickets', json=payload)
         response.raise_for_status(); return response.json()
 
 
@@ -125,7 +134,8 @@ class OmniClient:
 class Bridge:
     def __init__(self, config, crm=None, omni=None, store=None):
         self.config = config; self.store = store or Store(config['DB_PATH'])
-        self.crm = crm or CrmClient(config['CRM_BASE_URL'], config['CRM_API_TOKEN'])
+        self.crm = crm or CrmClient(config['CRM_BASE_URL'], config['CRM_API_TOKEN'],
+                                    min_interval=config.get('CRM_REQUEST_INTERVAL_SECONDS', 1.5))
         self.omni = omni or OmniClient(config['OML_SYNC_URL'], config['SHARED_SECRET'])
     def sync_contacts(self):
         customers = {str(x.get('userid', x.get('id'))): x for x in self.crm.list_all('customers')}
@@ -163,7 +173,7 @@ class Bridge:
 
 
 def application(config=None):
-    config = config or {'DB_PATH': os.getenv('BRIDGE_DB_PATH', 'bridge.sqlite3'), 'CRM_BASE_URL': os.environ['CRM_BASE_URL'], 'CRM_API_TOKEN': os.environ['CRM_API_TOKEN'], 'OML_SYNC_URL': os.environ['OML_SYNC_URL'], 'BRIDGE_API_KEY': os.environ['BRIDGE_API_KEY'], 'SHARED_SECRET': os.environ['BRIDGE_SHARED_SECRET'], 'QUEUE_DEPARTMENTS': json.loads(os.getenv('BRIDGE_QUEUE_DEPARTMENTS', '{}'))}
+    config = config or {'DB_PATH': os.getenv('BRIDGE_DB_PATH', 'bridge.sqlite3'), 'CRM_BASE_URL': os.environ['CRM_BASE_URL'], 'CRM_API_TOKEN': os.environ['CRM_API_TOKEN'], 'OML_SYNC_URL': os.environ['OML_SYNC_URL'], 'BRIDGE_API_KEY': os.environ['BRIDGE_API_KEY'], 'SHARED_SECRET': os.environ['BRIDGE_SHARED_SECRET'], 'QUEUE_DEPARTMENTS': json.loads(os.getenv('BRIDGE_QUEUE_DEPARTMENTS', '{}')), 'CRM_REQUEST_INTERVAL_SECONDS': float(os.getenv('CRM_REQUEST_INTERVAL_SECONDS', '1.5'))}
     bridge = Bridge(config)
     def app(environ, start_response):
         path, method = environ['PATH_INFO'], environ['REQUEST_METHOD']; query = parse_qs(environ.get('QUERY_STRING', ''))

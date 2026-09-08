@@ -32,6 +32,7 @@ OML_APP_IMG=docker.io/omnileads/omlapp:20260824-7aec5d3b
 # --- Standalone CRM bridge. Keep actual values in a server-only .env override.
 CRM_BASE_URL=https://aime.techxanh.com/rest_api/v1
 CRM_API_TOKEN=
+CRM_REQUEST_INTERVAL_SECONDS=1.5
 CRM_BRIDGE_API_KEY=
 CRM_BRIDGE_SHARED_SECRET=
 CRM_BRIDGE_QUEUE_DEPARTMENTS={}

@@ -5,6 +5,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from bridge_app import Bridge, Store
+from bridge_app import CrmClient
 
 
 class FakeCrm:
@@ -47,5 +48,19 @@ class BridgeTests(unittest.TestCase):
         self.bridge.store.create_call({'call_id': 'c-2', 'phone': '0999999999'})
         with self.assertRaisesRegex(ValueError, 'not mapped'):
             self.bridge.create_ticket('c-2', 'r-2', {'subject': 'x', 'message': 'x', 'queue': 'CSKH'})
+
+    def test_crm_client_spaces_requests(self):
+        class Response:
+            def raise_for_status(self): pass
+            def json(self): return {'data': [], 'meta': {'total': 0}}
+        class Http:
+            def get(self, *args, **kwargs): return Response()
+        clock_values = iter([0.0, 0.2, 0.2])
+        sleeps = []
+        client = CrmClient('https://crm.test', 'token', http=Http(), min_interval=1.5,
+                           clock=lambda: next(clock_values), sleeper=sleeps.append)
+        client._request('get', '/customers')
+        client._request('get', '/contacts')
+        self.assertEqual(sleeps, [1.3])
 
 if __name__ == '__main__': unittest.main()

@@ -18,6 +18,7 @@ Các endpoint ghi yêu cầu `X-Bridge-Api-Key`. Bridge gọi OmniLeads bằng H
 ## Cấu hình
 
 `CRM_BASE_URL`, `CRM_API_TOKEN`, `OML_SYNC_URL`, `BRIDGE_API_KEY`,
-`BRIDGE_SHARED_SECRET`, `BRIDGE_DB_PATH`, `BRIDGE_QUEUE_DEPARTMENTS` (JSON).
+`BRIDGE_SHARED_SECRET`, `BRIDGE_DB_PATH`, `BRIDGE_QUEUE_DEPARTMENTS` (JSON),
+`CRM_REQUEST_INTERVAL_SECONDS` (mặc định `1.5`, giãn giữa mọi request CRM).
 
 Chạy local: `python3 bridge_app.py`.
