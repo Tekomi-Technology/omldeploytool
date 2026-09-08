@@ -45,6 +45,8 @@ x-django-common: &django-common
     AWS_DEFAULT_REGION: "us-east-1"
     CALIFICACION_REAGENDA: ${CALIFICACION_REAGENDA}
     CALLREC_DEVICE: ${CALLREC_DEVICE}
+    TEKOMI_CRM_BRIDGE_SHARED_SECRET: ${CRM_BRIDGE_SHARED_SECRET}
+    TEKOMI_CRM_CONTACT_DATABASE_NAME: CRM_MASTER
     CRON_ENABLE: "false"
     DJANGO_HOSTNAME: ${DJANGO_HOSTNAME}
     DJANGO_ALLOW_ASYNC_UNSAFE: "true"
@@ -181,6 +183,7 @@ volumes:
   dialer-postgresql:
   redis_redisinsight: 
   faster_whisper_cache:
+  crm_bridge_data:
   
 # ============================================================================
 # SERVICES
@@ -770,6 +773,26 @@ services:
     stop_grace_period: 10s
     command: python /app/app.py
 
+  crm-bridge:
+    build:
+      context: ../../crm-bridge
+    image: tekomi/crm-bridge:local
+    environment:
+      PORT: "8080"
+      BRIDGE_DB_PATH: /var/lib/crm-bridge/bridge.sqlite3
+      CRM_BASE_URL: ${CRM_BASE_URL}
+      CRM_API_TOKEN: ${CRM_API_TOKEN}
+      OML_SYNC_URL: http://django-app:${UWSGI_PORT}/api/v1/tekomi-crm-bridge/contacts/sync/
+      BRIDGE_API_KEY: ${CRM_BRIDGE_API_KEY}
+      BRIDGE_SHARED_SECRET: ${CRM_BRIDGE_SHARED_SECRET}
+      BRIDGE_QUEUE_DEPARTMENTS: ${CRM_BRIDGE_QUEUE_DEPARTMENTS}
+    volumes:
+      - crm_bridge_data:/var/lib/crm-bridge
+    networks:
+      - omnileads
+    restart: on-failure
+    logging: *default-logging
+
   # ----------------------------------------------------------------------------
   # DIALER SERVICES
   # ----------------------------------------------------------------------------
@@ -943,4 +966,3 @@ services:
     environment:
       <<: *worker-env
       GEARMAN_JOBS: "manage-dialer"
-
