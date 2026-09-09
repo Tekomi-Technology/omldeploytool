@@ -6,6 +6,7 @@ import os
 import sqlite3
 import time
 import base64
+import threading
 from datetime import datetime, timezone
 from urllib.parse import parse_qs
 import requests
@@ -25,7 +26,7 @@ class Store:
             self.db = psycopg2.connect(path, cursor_factory=RealDictCursor)
             self.db.autocommit = False
             self.db.cursor().execute('CREATE SCHEMA IF NOT EXISTS tekomi_crm_bridge')
-            self.db.cursor().execute('''CREATE TABLE IF NOT EXISTS tekomi_crm_bridge.crm_contacts (external_id TEXT PRIMARY KEY, crm_customer_id TEXT NOT NULL, crm_contact_id TEXT, phone TEXT NOT NULL, payload TEXT NOT NULL, payload_hash TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tekomi_crm_bridge.calls (call_id TEXT PRIMARY KEY, agent_id TEXT, phone TEXT, campaign_id TEXT, crm_customer_id TEXT, crm_contact_id TEXT, payload TEXT NOT NULL, created_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tekomi_crm_bridge.ticket_requests (request_id TEXT PRIMARY KEY, call_id TEXT NOT NULL, crm_ticket_id TEXT, state TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tekomi_crm_bridge.audit_log (id BIGSERIAL PRIMARY KEY, action TEXT NOT NULL, subject TEXT NOT NULL, details TEXT NOT NULL, created_at TEXT NOT NULL);''')
+            self.db.cursor().execute('''CREATE TABLE IF NOT EXISTS tekomi_crm_bridge.crm_contacts (external_id TEXT PRIMARY KEY, crm_customer_id TEXT NOT NULL, crm_contact_id TEXT, phone TEXT NOT NULL, payload TEXT NOT NULL, payload_hash TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tekomi_crm_bridge.calls (call_id TEXT PRIMARY KEY, agent_id TEXT, phone TEXT, campaign_id TEXT, crm_customer_id TEXT, crm_contact_id TEXT, payload TEXT NOT NULL, created_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tekomi_crm_bridge.ticket_requests (request_id TEXT PRIMARY KEY, call_id TEXT NOT NULL, crm_ticket_id TEXT, state TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tekomi_crm_bridge.audit_log (id BIGSERIAL PRIMARY KEY, action TEXT NOT NULL, subject TEXT NOT NULL, details TEXT NOT NULL, created_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tekomi_crm_bridge.state (key TEXT PRIMARY KEY, value TEXT NOT NULL);''')
             self.db.commit()
             return
         self.db = sqlite3.connect(path, check_same_thread=False)
@@ -50,7 +51,7 @@ class Store:
     def execute(self, query, params=()):
         if self.postgres:
             query = query.replace('?', '%s').replace('INSERT OR IGNORE', 'INSERT').replace('ON CONFLICT(request_id) DO NOTHING', 'ON CONFLICT(request_id) DO NOTHING')
-            query = query.replace('crm_contacts', 'tekomi_crm_bridge.crm_contacts').replace('ticket_requests', 'tekomi_crm_bridge.ticket_requests').replace('audit_log', 'tekomi_crm_bridge.audit_log').replace(' calls', ' tekomi_crm_bridge.calls').replace('INTO calls', 'INTO tekomi_crm_bridge.calls')
+            query = query.replace('crm_contacts', 'tekomi_crm_bridge.crm_contacts').replace('ticket_requests', 'tekomi_crm_bridge.ticket_requests').replace('audit_log', 'tekomi_crm_bridge.audit_log').replace(' state', ' tekomi_crm_bridge.state').replace('INTO state', 'INTO tekomi_crm_bridge.state').replace(' calls', ' tekomi_crm_bridge.calls').replace('INTO calls', 'INTO tekomi_crm_bridge.calls')
             cursor = self.db.cursor(); cursor.execute(query, params); return cursor
         return self.db.execute(query, params)
 
@@ -104,6 +105,20 @@ class Store:
 
     def recent_audit(self, limit=30):
         return [dict(row) for row in self.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT ?', (limit,)).fetchall()]
+
+    def ingest_oml_call_logs(self):
+        """Consume OmniLeads' durable call-logger table through shared PostgreSQL."""
+        if not self.postgres: return 0
+        row = self.execute("SELECT value FROM state WHERE key='oml_llamadalog_id'").fetchone()
+        after = int(row['value']) if row else 0
+        rows = self.execute('SELECT id,callid,campana_id,agente_id,event,numero_marcado,duracion_llamada,bridge_wait_time,archivo_grabacion,time FROM reportes_app_llamadalog WHERE id>? ORDER BY id LIMIT 500', (after,)).fetchall()
+        for row in rows:
+            if row['callid']:
+                self.create_call({'call_id': row['callid'], 'agent_id': row['agente_id'], 'campaign_id': row['campana_id'], 'phone': row['numero_marcado'], 'event': row['event'], 'duration': row['duracion_llamada'], 'wait_duration': row['bridge_wait_time'], 'recording_ref': row['archivo_grabacion'], 'occurred_at': row['time'].isoformat() if row['time'] else now()})
+            after = row['id']
+        if rows:
+            self.execute("INSERT INTO state(key,value) VALUES('oml_llamadalog_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(after),)); self.db.commit()
+        return len(rows)
 
 
 def normalize_phone(value):
@@ -222,12 +237,20 @@ class Bridge:
             return {'agent_id': agent_id, 'extension': extension}
         except Exception: return None
 
+    def run_call_log_consumer(self):
+        while True:
+            try: self.store.ingest_oml_call_logs()
+            except Exception: pass
+            time.sleep(3)
+
 WORKSPACE_HTML = '''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tekomi CRM</title><style>body{font:14px system-ui;margin:16px}.card{background:#f5f7fb;padding:10px;margin:8px 0;border-radius:7px}input,textarea,button,select{box-sizing:border-box;width:100%;padding:7px;margin:4px 0}button{background:#1565c0;color:#fff;border:0;border-radius:4px}.err{color:#b00020}</style><h3>CRM Bridge</h3><select id="calls"></select><div id="info" class="card">Chọn cuộc gọi</div><div class="card"><b>Quick Ticket</b><input id="subject" placeholder="Tiêu đề"><textarea id="message" placeholder="Nội dung"></textarea><button onclick="ticket()">Tạo Ticket CRM</button></div><div class="card"><b>Callback</b><input id="when" type="datetime-local"><textarea id="note" placeholder="Ghi chú"></textarea><button onclick="callback()">Lưu Callback</button></div><div id="result"></div><script>const q=new URLSearchParams(location.search),s=q.get('session');let id;const api=(p,o={})=>fetch('/crm-bridge/'+p+(p.includes('?')?'&':'?')+'session='+encodeURIComponent(s),o).then(r=>r.json());const out=x=>result.innerHTML='<p class="'+(x.error?'err':'')+'">'+(x.error||x.message||JSON.stringify(x))+'</p>';api('v1/agent/calls').then(x=>{(x.calls||[]).forEach(c=>calls.add(new Option(c.phone+' · '+c.created_at,c.call_id)));calls.onchange=load;load()});function load(){id=calls.value;if(!id)return;api('v1/calls/'+id).then(x=>info.innerHTML=x.error?x.error:`<b>${x.phone}</b><br>Campaign: ${x.campaign_id||'-'}<br>CRM Customer: ${x.crm_customer_id||'chưa map'}`)}function ticket(){api('v1/calls/'+id+'/tickets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:crypto.randomUUID(),subject:subject.value,message:message.value,department:1})}).then(x=>out(x.ticket_id?{message:'Đã tạo Ticket #'+x.ticket_id}:x))}function callback(){api('v1/calls/'+id+'/callbacks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({when:when.value,note:note.value})}).then(x=>out(x.saved?{message:'Đã lưu callback'}:x))}</script>'''
 
 
 def application(config=None):
     config = config or {'DB_PATH': os.getenv('BRIDGE_DATABASE_URL', os.getenv('BRIDGE_DB_PATH', 'bridge.sqlite3')), 'CRM_BASE_URL': os.environ['CRM_BASE_URL'], 'CRM_API_TOKEN': os.environ['CRM_API_TOKEN'], 'OML_SYNC_URL': os.environ['OML_SYNC_URL'], 'BRIDGE_API_KEY': os.environ['BRIDGE_API_KEY'], 'SHARED_SECRET': os.environ['BRIDGE_SHARED_SECRET'], 'QUEUE_DEPARTMENTS': json.loads(os.getenv('BRIDGE_QUEUE_DEPARTMENTS', '{}')), 'CRM_REQUEST_INTERVAL_SECONDS': float(os.getenv('CRM_REQUEST_INTERVAL_SECONDS', '1.5'))}
     bridge = Bridge(config)
+    if bridge.store.postgres:
+        threading.Thread(target=bridge.run_call_log_consumer, daemon=True).start()
     def app(environ, start_response):
         path, method = environ['PATH_INFO'], environ['REQUEST_METHOD']; query = parse_qs(environ.get('QUERY_STRING', ''))
         def respond(status, body, content='application/json'):
