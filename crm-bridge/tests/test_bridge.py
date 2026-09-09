@@ -2,9 +2,14 @@ import os
 import sys
 import tempfile
 import unittest
+import base64
+import hmac
+import hashlib
+import io
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from bridge_app import Bridge, Store, department_mapping
+from bridge_app import Bridge, Store, application, department_mapping
 from bridge_app import CrmClient
 
 
@@ -93,5 +98,25 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(department_mapping('{default: 1}'), {'default': 1})
         with self.assertRaises(ValueError):
             department_mapping('[1]')
+
+    def test_agent_session_cannot_create_events_or_run_bulk_sync(self):
+        raw = '2:1006:{}'.format(int(time.time())).encode()
+        token = base64.urlsafe_b64encode(raw).decode().rstrip('=') + '.' + hmac.new(
+            b'test', raw, hashlib.sha256).hexdigest()
+        config = {'DB_PATH': self.db.name, 'CRM_BASE_URL': 'https://crm.test',
+                  'CRM_API_TOKEN': 'test', 'OML_SYNC_URL': 'https://oml.test/sync',
+                  'BRIDGE_API_KEY': 'server-only-key', 'SHARED_SECRET': 'test',
+                  'QUEUE_DEPARTMENTS': {}}
+        app = application(config)
+        for path in ('/v1/sync', '/v1/telephony-events'):
+            captured = []
+            body = b'{}'
+            response = b''.join(app({'REQUEST_METHOD': 'POST', 'PATH_INFO': path,
+                                     'QUERY_STRING': 'session=' + token,
+                                     'CONTENT_LENGTH': str(len(body)),
+                                     'wsgi.input': io.BytesIO(body)},
+                                    lambda status, headers: captured.append(status)))
+            self.assertEqual(captured[0], '401 Unauthorized')
+            self.assertIn(b'unauthorized', response)
 
 if __name__ == '__main__': unittest.main()
