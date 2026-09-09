@@ -9,7 +9,8 @@ không xóa hoặc inactive dữ liệu ở OmniLeads.
 - `GET /health`
 - `POST /v1/sync` — đồng bộ Customers/Contacts từ CRM sang OmniLeads.
 - `POST /v1/calls` — ghi call context, trả URL workspace.
-- `GET /workspace?call_id=...&token=...` — màn hình agent tối giản.
+- `GET /workspace?session=...` — màn hình agent, chỉ nhận session ngắn hạn do
+  OmniLeads cấp cho agent đã đăng nhập.
 - `POST /v1/calls/<call_id>/tickets` — agent chủ động tạo Ticket CRM.
 
 Các endpoint ghi yêu cầu `X-Bridge-Api-Key`. Bridge gọi OmniLeads bằng HMAC
@@ -20,5 +21,18 @@ Các endpoint ghi yêu cầu `X-Bridge-Api-Key`. Bridge gọi OmniLeads bằng H
 `CRM_BASE_URL`, `CRM_API_TOKEN`, `OML_SYNC_URL`, `BRIDGE_API_KEY`,
 `BRIDGE_SHARED_SECRET`, `BRIDGE_DB_PATH`, `BRIDGE_QUEUE_DEPARTMENTS` (JSON),
 `CRM_REQUEST_INTERVAL_SECONDS` (mặc định `1.5`, giãn giữa mọi request CRM).
+
+## HA và cuộc gọi SIP trực tiếp
+
+`ami_collector.py` chạy **một bản trên mỗi node Asterisk**. Nó chỉ đọc AMI ở
+node cục bộ và gửi `DialBegin`, `BridgeEnter`, `Hangup` tới Bridge; dữ liệu call
+được ghi vào PostgreSQL dùng chung. Vì vậy extension do Kamailio quản lý vẫn có
+thể gọi bằng Zoiper/softphone, và call context không bị buộc vào một Asterisk
+cố định. Call đang diễn ra tại node bị hỏng vẫn là giới hạn tự nhiên của
+Asterisk/OmniLeads; các node còn lại và dữ liệu đã ghi không phụ thuộc node đó.
+
+Trong deployment HA, chạy image adapter trên mọi `omnileads_voice` host, đặt
+`ASTERISK_HOSTNAME=127.0.0.1`, `PBX_NODE_ID` là định danh node ổn định và
+`BRIDGE_URL` là VIP/service Bridge. AIO compose đã chạy cùng cấu hình logic.
 
 Chạy local: `python3 bridge_app.py`.
