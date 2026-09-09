@@ -20,6 +20,7 @@ def now():
 class Store:
     def __init__(self, path):
         self.postgres = path.startswith('postgresql://')
+        self.consumer_leader = False
         if self.postgres:
             import psycopg2
             from psycopg2.extras import RealDictCursor
@@ -119,6 +120,12 @@ class Store:
         if rows:
             self.execute("INSERT INTO state(key,value) VALUES('oml_llamadalog_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(after),)); self.db.commit()
         return len(rows)
+
+    def claim_call_log_consumer(self):
+        if not self.postgres: return False
+        if self.consumer_leader: return True
+        self.consumer_leader = bool(self.execute('SELECT pg_try_advisory_lock(90824017) AS locked').fetchone()['locked'])
+        return self.consumer_leader
 
 
 def normalize_phone(value):
@@ -239,7 +246,8 @@ class Bridge:
 
     def run_call_log_consumer(self):
         while True:
-            try: self.store.ingest_oml_call_logs()
+            try:
+                if self.store.claim_call_log_consumer(): self.store.ingest_oml_call_logs()
             except Exception: pass
             time.sleep(3)
 
