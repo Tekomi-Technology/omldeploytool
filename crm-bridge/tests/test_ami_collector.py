@@ -14,9 +14,10 @@ class AmiCollectorTests(unittest.TestCase):
             b"DestCallerIDNum: 0342387314\r\nLinkedid: call-1"
         )
         payload = event_payload(event, "voice-a")
-        self.assertEqual(payload["call_id"], "voice-a:call-1")
+        self.assertEqual(payload["call_id"], "call-1")
         self.assertEqual(payload["extension"], "1006")
         self.assertEqual(payload["phone"], "0342387314")
+        self.assertEqual(payload["direction"], "outbound")
 
     def test_inbound_uses_caller_as_customer_number(self):
         event = parse_message(
@@ -25,9 +26,10 @@ class AmiCollectorTests(unittest.TestCase):
             b"DestCallerIDNum: 1006\r\nLinkedid: call-2"
         )
         payload = event_payload(event, "voice-b")
-        self.assertEqual(payload["call_id"], "voice-b:call-2")
+        self.assertEqual(payload["call_id"], "call-2")
         self.assertEqual(payload["extension"], "1006")
         self.assertEqual(payload["phone"], "02483801899")
+        self.assertEqual(payload["direction"], "inbound")
 
     def test_ignores_non_agent_or_unrelated_event(self):
         self.assertIsNone(event_payload({"Event": "Newchannel"}, "voice-a"))

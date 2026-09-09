@@ -117,9 +117,20 @@ class Store:
     def create_call(self, data):
         if not data.get('agent_id') and data.get('extension'):
             data['agent_id'] = self.agent_for_extension(data['extension'])
+        existing = self.get_call(data['call_id'])
+        if existing:
+            previous = json.loads(existing['payload'])
+            # AMI delivers the early real-time event; the durable OmniLeads
+            # logger later supplies campaign, duration and recording. Retain
+            # useful early fields while accepting richer later data.
+            data = {**previous, **{key: value for key, value in data.items()
+                                   if value not in (None, '')}}
         contact = self.find_contact(data.get('phone', ''))
         self.execute('''INSERT INTO calls(call_id,agent_id,phone,campaign_id,crm_customer_id,crm_contact_id,payload,created_at)
-          VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(call_id) DO UPDATE SET payload=excluded.payload''',
+          VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(call_id) DO UPDATE SET
+          agent_id=excluded.agent_id,phone=excluded.phone,campaign_id=excluded.campaign_id,
+          crm_customer_id=excluded.crm_customer_id,crm_contact_id=excluded.crm_contact_id,
+          payload=excluded.payload''',
           (data['call_id'], str(data.get('agent_id', '')), data.get('phone', ''), str(data.get('campaign_id', '')),
            str(contact['crm_customer_id']) if contact else None, contact.get('crm_contact_id') if contact else None,
            json.dumps(data, sort_keys=True), now()))
@@ -244,9 +255,23 @@ class Bridge:
         if existing and existing['crm_ticket_id']: return {'ticket_id': existing['crm_ticket_id'], 'replayed': True}
         call = self.store.get_call(call_id)
         if not call or not call['crm_customer_id']: raise ValueError('Caller is not mapped to a CRM customer')
+        subject = str(data.get('subject', '')).strip()
+        if not subject: raise ValueError('Ticket subject is required')
         department = self.config['QUEUE_DEPARTMENTS'].get(str(data.get('queue', '')), data.get('department'))
         if not department: raise ValueError('No CRM department mapping for this queue')
-        payload = {'subject': data['subject'], 'message': data['message'] + '\n\nOML-CALL:' + call_id,
+        context = json.loads(call['payload'])
+        lines = [
+            'OML-CALL:' + call_id,
+            'OML Call ID: ' + call_id,
+            'Phone: ' + (call['phone'] or '-'),
+            'Agent ID: ' + (call['agent_id'] or '-'),
+            'Direction: ' + str(context.get('direction', '-')),
+            'Campaign/Queue: ' + (call['campaign_id'] or '-'),
+            'Call time: ' + str(context.get('occurred_at', call['created_at'])),
+            'Duration: ' + str(context.get('duration', '-')),
+            'Recording: ' + str(context.get('recording_ref', '-')),
+        ]
+        payload = {'subject': subject, 'message': str(data.get('message', '')).strip() + '\n\n' + '\n'.join(lines),
                    'department': department, 'userid': int(call['crm_customer_id'])}
         if call['crm_contact_id']: payload['contactid'] = int(call['crm_contact_id'])
         if data.get('priority') is not None: payload['priority'] = data['priority']
@@ -266,7 +291,12 @@ class Bridge:
     def callback(self, call_id, data):
         call = self.store.get_call(call_id)
         if not call: raise ValueError('Unknown call')
-        self.store.audit('callback_requested', call_id, {'when': data.get('when', ''), 'note': data.get('note', '')})
+        when = str(data.get('when', '')).strip()
+        if not when: raise ValueError('Callback time is required')
+        self.store.audit('callback_requested', call_id, {
+            'when': when, 'note': str(data.get('note', '')).strip(),
+            'agent_id': call['agent_id'], 'phone': call['phone'],
+        })
         return {'saved': True}
 
     def session(self, token):
@@ -285,7 +315,7 @@ class Bridge:
             except Exception: pass
             time.sleep(3)
 
-WORKSPACE_HTML = '''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tekomi CRM</title><style>body{font:14px system-ui;margin:16px}.card{background:#f5f7fb;padding:10px;margin:8px 0;border-radius:7px}input,textarea,button,select{box-sizing:border-box;width:100%;padding:7px;margin:4px 0}button{background:#1565c0;color:#fff;border:0;border-radius:4px}.err{color:#b00020}</style><h3>CRM Bridge</h3><select id="calls"></select><div id="info" class="card">Chọn cuộc gọi</div><div class="card"><b>Quick Ticket</b><input id="subject" placeholder="Tiêu đề"><textarea id="message" placeholder="Nội dung"></textarea><button onclick="ticket()">Tạo Ticket CRM</button></div><div class="card"><b>Callback</b><input id="when" type="datetime-local"><textarea id="note" placeholder="Ghi chú"></textarea><button onclick="callback()">Lưu Callback</button></div><div id="result"></div><script>const q=new URLSearchParams(location.search),s=q.get('session');let id;const api=(p,o={})=>fetch('/crm-bridge/'+p+(p.includes('?')?'&':'?')+'session='+encodeURIComponent(s),o).then(r=>r.json());const out=x=>result.innerHTML='<p class="'+(x.error?'err':'')+'">'+(x.error||x.message||JSON.stringify(x))+'</p>';api('v1/agent/calls').then(x=>{(x.calls||[]).forEach(c=>calls.add(new Option(c.phone+' · '+c.created_at,c.call_id)));calls.onchange=load;load()});function load(){id=calls.value;if(!id)return;api('v1/calls/'+id).then(x=>info.innerHTML=x.error?x.error:`<b>${x.phone}</b><br>Campaign: ${x.campaign_id||'-'}<br>CRM Customer: ${x.crm_customer_id||'chưa map'}`)}function ticket(){api('v1/calls/'+id+'/tickets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:crypto.randomUUID(),subject:subject.value,message:message.value,department:1})}).then(x=>out(x.ticket_id?{message:'Đã tạo Ticket #'+x.ticket_id}:x))}function callback(){api('v1/calls/'+id+'/callbacks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({when:when.value,note:note.value})}).then(x=>out(x.saved?{message:'Đã lưu callback'}:x))}</script>'''
+WORKSPACE_HTML = '''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tekomi CRM</title><style>body{font:14px system-ui;margin:16px}.card{background:#f5f7fb;padding:10px;margin:8px 0;border-radius:7px}input,textarea,button,select{box-sizing:border-box;width:100%;padding:7px;margin:4px 0}button{background:#1565c0;color:#fff;border:0;border-radius:4px}.err{color:#b00020}</style><h3>CRM Bridge</h3><select id="calls"></select><div id="info" class="card">Chọn cuộc gọi</div><div class="card"><b>Quick Ticket</b><input id="subject" placeholder="Tiêu đề" required><textarea id="message" placeholder="Nội dung"></textarea><button onclick="ticket()">Tạo Ticket CRM</button></div><div class="card"><b>Callback</b><input id="when" type="datetime-local" required><textarea id="note" placeholder="Ghi chú"></textarea><button onclick="callback()">Lưu Callback</button></div><div id="result"></div><script>const q=new URLSearchParams(location.search),s=q.get('session');let id;const api=(p,o={})=>fetch('/crm-bridge/'+p+(p.includes('?')?'&':'?')+'session='+encodeURIComponent(s),o).then(r=>r.json());const out=x=>result.innerHTML='<p class="'+(x.error?'err':'')+'">'+(x.error||x.message||JSON.stringify(x))+'</p>';api('v1/agent/calls').then(x=>{(x.calls||[]).forEach(c=>calls.add(new Option(c.phone+' · '+c.created_at,c.call_id)));calls.onchange=load;load()});function load(){id=calls.value;if(!id)return;api('v1/calls/'+id).then(x=>{let p=x.payload||{};info.innerHTML=x.error?x.error:`<b>${x.phone}</b><br>Direction: ${p.direction||'-'}<br>Campaign: ${x.campaign_id||'-'}<br>Duration: ${p.duration||'-'}<br>Recording: ${p.recording_ref||'-'}<br>CRM Customer: ${x.crm_customer_id||'chưa map'}`})}function ticket(){if(!id||!subject.value.trim())return out({error:'Chọn cuộc gọi và nhập tiêu đề'});api('v1/calls/'+id+'/tickets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:crypto.randomUUID(),subject:subject.value,message:message.value,department:1})}).then(x=>out(x.ticket_id?{message:'Đã tạo Ticket #'+x.ticket_id}:x))}function callback(){if(!id||!when.value)return out({error:'Chọn thời gian callback'});api('v1/calls/'+id+'/callbacks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({when:when.value,note:note.value})}).then(x=>out(x.saved?{message:'Đã lưu callback'}:x))}</script>'''
 
 
 def application(config=None):
@@ -299,10 +329,19 @@ def application(config=None):
             raw = json.dumps(body).encode() if content == 'application/json' else body.encode(); start_response(status, [('Content-Type', content), ('Content-Length', str(len(raw)))]); return [raw]
         if path == '/health': return respond('200 OK', {'ok': True})
         session = bridge.session(query.get('session', [''])[0])
+        api_key_valid = hmac.compare_digest(
+            environ.get('HTTP_X_BRIDGE_API_KEY', ''), config['BRIDGE_API_KEY'])
         if path == '/workspace' and method == 'GET':
             if not session: return respond('401 Unauthorized', 'Unauthorized', 'text/plain')
             return respond('200 OK', WORKSPACE_HTML, 'text/html; charset=utf-8')
-        if method == 'POST' and environ.get('HTTP_X_BRIDGE_API_KEY') != config['BRIDGE_API_KEY'] and not session: return respond('401 Unauthorized', {'error': 'unauthorized'})
+        # Only node adapters/operations with the server-side key can create
+        # call data or trigger a bulk CRM sync. An agent session may only act
+        # on its own existing call (ticket/callback).
+        key_only_paths = {'/v1/sync', '/v1/calls', '/v1/telephony-events'}
+        if method == 'POST' and path in key_only_paths and not api_key_valid:
+            return respond('401 Unauthorized', {'error': 'unauthorized'})
+        if method == 'POST' and path not in key_only_paths and not api_key_valid and not session:
+            return respond('401 Unauthorized', {'error': 'unauthorized'})
         length = int(environ.get('CONTENT_LENGTH') or 0); data = json.loads(environ['wsgi.input'].read(length) or b'{}') if length else {}
         try:
             if path == '/v1/sync' and method == 'POST': return respond('200 OK', bridge.sync_contacts())
@@ -313,7 +352,7 @@ def application(config=None):
                 if not session: return respond('401 Unauthorized', {'error': 'unauthorized'})
                 return respond('200 OK', {'calls': bridge.store.agent_calls(session['agent_id'])})
             if path.startswith('/v1/calls/') and method == 'GET':
-                if not session and environ.get('HTTP_X_BRIDGE_API_KEY') != config['BRIDGE_API_KEY']: return respond('401 Unauthorized', {'error': 'unauthorized'})
+                if not session and not api_key_valid: return respond('401 Unauthorized', {'error': 'unauthorized'})
                 call = bridge.workspace(path.split('/')[3])
                 if session and call and str(call['agent_id']) != session['agent_id']: return respond('403 Forbidden', {'error': 'forbidden'})
                 return respond('200 OK', call or {'error': 'not found'})

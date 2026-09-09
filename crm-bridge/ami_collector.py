@@ -58,10 +58,15 @@ def event_payload(message, node_id):
         return None
 
     return {
-        "call_id": f"{node_id}:{linked_id}",
+        # Linkedid is the call correlation key that OmniLeads' call_logger/CDR
+        # stores too. Keeping it unchanged lets a later durable record enrich
+        # this real-time SIP event (duration/recording) instead of making a
+        # second call row. node_id remains in the payload for HA auditability.
+        "call_id": linked_id,
         "node_id": node_id,
         "extension": agent_extension,
         "phone": phone,
+        "direction": "outbound" if source_extension else "inbound",
         "event": message["Event"],
         "occurred_at": str(time.time()),
     }

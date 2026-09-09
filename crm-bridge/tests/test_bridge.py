@@ -44,6 +44,30 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(len(self.crm.tickets), 1)
         self.assertEqual(self.crm.tickets[0]['userid'], 7)
         self.assertIn('OML-CALL:c-1', self.crm.tickets[0]['message'])
+
+    def test_ami_event_and_call_log_enrich_one_call_context(self):
+        self.bridge.sync_contacts()
+        self.bridge.store.create_call({'call_id': 'linked-1', 'phone': '0901234567',
+                                       'agent_id': 2, 'direction': 'outbound', 'node_id': 'voice-a'})
+        self.bridge.store.create_call({'call_id': 'linked-1', 'campaign_id': 7,
+                                       'duration': 42, 'recording_ref': 'recording.wav'})
+        context = self.bridge.workspace('linked-1')
+        self.assertEqual(context['agent_id'], '2')
+        self.assertEqual(context['campaign_id'], '7')
+        self.assertEqual(context['payload']['direction'], 'outbound')
+        self.assertEqual(context['payload']['recording_ref'], 'recording.wav')
+        self.bridge.create_ticket('linked-1', 'r-context', {
+            'subject': 'Callback needed', 'message': 'Please call back', 'queue': 'CSKH'})
+        ticket_message = self.crm.tickets[-1]['message']
+        self.assertIn('Direction: outbound', ticket_message)
+        self.assertIn('Recording: recording.wav', ticket_message)
+
+    def test_callback_requires_a_time_and_is_audited(self):
+        self.bridge.store.create_call({'call_id': 'c-callback', 'phone': '0901234567', 'agent_id': 2})
+        with self.assertRaisesRegex(ValueError, 'time is required'):
+            self.bridge.callback('c-callback', {'note': 'later'})
+        self.assertEqual(self.bridge.callback('c-callback', {'when': '2026-09-10T10:00', 'note': 'later'}), {'saved': True})
+        self.assertEqual(self.bridge.store.recent_audit(1)[0]['action'], 'callback_requested')
     def test_ticket_requires_mapped_customer(self):
         self.bridge.store.create_call({'call_id': 'c-2', 'phone': '0999999999'})
         with self.assertRaisesRegex(ValueError, 'not mapped'):
