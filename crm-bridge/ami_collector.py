@@ -79,6 +79,10 @@ def run(host, port, username, password, bridge_url, api_key, node_id):
     while True:
         try:
             with socket.create_connection((host, port), 10) as ami:
+                # create_connection leaves its connect timeout on the socket.
+                # AMI can be quiet for much longer than ten seconds, so switch
+                # back to blocking mode after a successful connection.
+                ami.settimeout(None)
                 login = (
                     "Action: Login\r\nUsername: %s\r\nSecret: %s\r\n"
                     "Events: on\r\n\r\n"
