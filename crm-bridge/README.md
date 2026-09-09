@@ -8,13 +8,19 @@ không xóa hoặc inactive dữ liệu ở OmniLeads.
 
 - `GET /health`
 - `POST /v1/sync` — đồng bộ Customers/Contacts từ CRM sang OmniLeads.
-- `POST /v1/calls` — ghi call context, trả URL workspace.
+- `POST /v1/calls` — ghi/enrich call context; AMI realtime và call_logger
+  dùng cùng Asterisk `Linkedid`, vì vậy chỉ tạo một call record.
 - `GET /workspace?session=...` — màn hình agent, chỉ nhận session ngắn hạn do
   OmniLeads cấp cho agent đã đăng nhập.
 - `POST /v1/calls/<call_id>/tickets` — agent chủ động tạo Ticket CRM.
+- `POST /v1/calls/<call_id>/callbacks` — agent chủ động tạo CRM Task callback;
+  request idempotent và audit được giữ ở Bridge.
 
-Các endpoint ghi yêu cầu `X-Bridge-Api-Key`. Bridge gọi OmniLeads bằng HMAC
-(`X-Bridge-Timestamp`, `X-Bridge-Signature`); shared secret không nằm trong URL.
+Các endpoint ingest (`/v1/sync`, `/v1/calls`, `/v1/telephony-events`) yêu cầu
+`X-Bridge-Api-Key`; browser agent chỉ có session 5 phút do Django phát hành và
+chỉ được xem/tạo Ticket hoặc Callback của chính call mình. Bridge gọi
+OmniLeads bằng HMAC (`X-Bridge-Timestamp`, `X-Bridge-Signature`); shared secret
+không nằm trong URL.
 
 ## Cấu hình
 
