@@ -66,6 +66,7 @@ class BridgeTests(unittest.TestCase):
     def test_department_mapping_accepts_json_and_legacy_deployment_value(self):
         self.assertEqual(department_mapping('{"default": 1}'), {'default': 1})
         self.assertEqual(department_mapping("{'default': 1}"), {'default': 1})
+        self.assertEqual(department_mapping('{default: 1}'), {'default': 1})
         with self.assertRaises(ValueError):
             department_mapping('[1]')
 

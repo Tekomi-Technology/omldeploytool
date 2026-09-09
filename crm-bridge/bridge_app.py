@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import sqlite3
 import time
 import base64
@@ -30,7 +31,14 @@ def department_mapping(value):
     try:
         mapping = json.loads(value)
     except json.JSONDecodeError:
-        mapping = ast.literal_eval(value)
+        # ``source`` strips inner double quotes in an unquoted .env value such
+        # as {"default": 1}, leaving {default: 1}. Normalize only bare object
+        # keys before falling back to the older single-quoted representation.
+        normalized = re.sub(r'([,{]\s*)([A-Za-z_][A-Za-z0-9_-]*)\s*:', r'\1"\2":', value)
+        try:
+            mapping = json.loads(normalized)
+        except json.JSONDecodeError:
+            mapping = ast.literal_eval(value)
     if not isinstance(mapping, dict):
         raise ValueError("BRIDGE_QUEUE_DEPARTMENTS must be an object")
     return {str(key): item for key, item in mapping.items()}
