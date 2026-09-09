@@ -807,18 +807,22 @@ services:
   crm-bridge-ami:
     image: tekomi/crm-bridge:local
     command: python /app/ami_collector.py
+    # Asterisk uses host networking in OmniLeads. The adapter must share that
+    # namespace to reach its node-local AMI; using the public/VIP address
+    # would both break AMI allow-lists and couple it to a remote node.
+    network_mode: host
     environment:
-      ASTERISK_HOSTNAME: ${ACD_HOSTNAME}
+      ASTERISK_HOSTNAME: 127.0.0.1
       AMI_USER: ${ACD_AMI_USER}
       AMI_PASSWORD: ${ACD_AMI_PASSWORD}
-      BRIDGE_URL: http://crm-bridge:8080
+      # AIO: the local Bridge port. In HA the per-node service uses the
+      # Bridge service/VIP endpoint instead of this compose definition.
+      BRIDGE_URL: http://127.0.0.1:18080
       BRIDGE_API_KEY: ${CRM_BRIDGE_API_KEY}
       PBX_NODE_ID: ${PBX_NODE_ID:-aio-1}
     depends_on:
       crm-bridge:
         condition: service_started
-    networks:
-      - omnileads
     restart: on-failure
     logging: *default-logging
 

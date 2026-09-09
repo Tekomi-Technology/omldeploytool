@@ -33,6 +33,8 @@ Asterisk/OmniLeads; các node còn lại và dữ liệu đã ghi không phụ t
 
 Trong deployment HA, chạy image adapter trên mọi `omnileads_voice` host, đặt
 `ASTERISK_HOSTNAME=127.0.0.1`, `PBX_NODE_ID` là định danh node ổn định và
-`BRIDGE_URL` là VIP/service Bridge. AIO compose đã chạy cùng cấu hình logic.
+`BRIDGE_URL` là VIP/service Bridge. Adapter dùng host network (giống
+Asterisk), nên luôn đọc AMI cục bộ; AIO dùng `http://127.0.0.1:18080` để gọi
+Bridge cục bộ, còn cụm HA đặt URL Bridge/VIP dùng chung.
 
 Chạy local: `python3 bridge_app.py`.
