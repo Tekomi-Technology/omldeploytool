@@ -14,11 +14,12 @@ from bridge_app import CrmClient
 
 
 class FakeCrm:
-    def __init__(self): self.tickets = []
+    def __init__(self): self.tickets = []; self.tasks = []
     def list_all(self, resource):
         if resource == 'customers': return [{'userid': 7, 'company': 'BV Test'}]
         return [{'id': 11, 'userid': 7, 'firstname': 'An', 'lastname': 'Nguyen', 'email': 'a@example.test', 'phonenumber': '+84901234567'}]
     def create_ticket(self, payload): self.tickets.append(payload); return {'data': {'ticketid': 99}}
+    def create_task(self, payload): self.tasks.append(payload); return {'data': {'taskid': 77}}
 
 
 class FakeOmni:
@@ -71,7 +72,11 @@ class BridgeTests(unittest.TestCase):
         self.bridge.store.create_call({'call_id': 'c-callback', 'phone': '0901234567', 'agent_id': 2})
         with self.assertRaisesRegex(ValueError, 'time is required'):
             self.bridge.callback('c-callback', {'note': 'later'})
-        self.assertEqual(self.bridge.callback('c-callback', {'when': '2026-09-10T10:00', 'note': 'later'}), {'saved': True})
+        data = {'request_id': 'callback-1', 'when': '2026-09-10T10:00', 'note': 'later'}
+        self.assertEqual(self.bridge.callback('c-callback', data), {'saved': True, 'task_id': 77, 'replayed': False})
+        self.assertEqual(self.bridge.callback('c-callback', data), {'saved': True, 'task_id': '77', 'replayed': True})
+        self.assertEqual(len(self.crm.tasks), 1)
+        self.assertIn('OML-CALL:c-callback', self.crm.tasks[0]['name'])
         self.assertEqual(self.bridge.store.recent_audit(1)[0]['action'], 'callback_requested')
     def test_ticket_requires_mapped_customer(self):
         self.bridge.store.create_call({'call_id': 'c-2', 'phone': '0999999999'})
