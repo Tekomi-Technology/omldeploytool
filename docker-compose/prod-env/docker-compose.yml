@@ -351,6 +351,7 @@ services:
     volumes:
       - django_static:/opt/omnileads/static
       - django_callrec_zip:/opt/omnileads/asterisk/var/spool/asterisk/monitor
+      - ./crm-bridge-proxy.conf:/etc/nginx/conf.d/environment/00-crm-bridge.conf:ro
       - django_media:/opt/omnileads/media_root
   
   cronos:
@@ -791,6 +792,8 @@ services:
       BRIDGE_QUEUE_DEPARTMENTS: ${CRM_BRIDGE_QUEUE_DEPARTMENTS}
     volumes:
       - crm_bridge_data:/var/lib/crm-bridge
+    ports:
+      - "127.0.0.1:18080:8080"
     networks:
       - omnileads
     restart: on-failure
