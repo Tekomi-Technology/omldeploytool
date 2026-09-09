@@ -351,7 +351,6 @@ services:
     volumes:
       - django_static:/opt/omnileads/static
       - django_callrec_zip:/opt/omnileads/asterisk/var/spool/asterisk/monitor
-      - ./crm-bridge-proxy.conf:/etc/nginx/conf.d/environment/00-crm-bridge.conf:ro
       - django_media:/opt/omnileads/media_root
   
   cronos:
@@ -381,6 +380,7 @@ services:
     volumes:
       - django_static:/opt/omnileads/static
       - django_callrec_zip:/opt/omnileads/asterisk/var/spool/asterisk/monitor
+      - ./crm-bridge-proxy.conf:/etc/nginx/conf.d/environment/00-crm-bridge.conf:ro
     stop_grace_period: 30s
   
   daphne:
