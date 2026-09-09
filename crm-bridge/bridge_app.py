@@ -88,6 +88,8 @@ class Store:
         return None
 
     def create_call(self, data):
+        if not data.get('agent_id') and data.get('extension'):
+            data['agent_id'] = self.agent_for_extension(data['extension'])
         contact = self.find_contact(data.get('phone', ''))
         self.execute('''INSERT INTO calls(call_id,agent_id,phone,campaign_id,crm_customer_id,crm_contact_id,payload,created_at)
           VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(call_id) DO UPDATE SET payload=excluded.payload''',
@@ -103,6 +105,11 @@ class Store:
 
     def agent_calls(self, agent_id):
         return [dict(row) for row in self.execute('SELECT call_id,phone,campaign_id,created_at,crm_customer_id FROM calls WHERE agent_id=? ORDER BY created_at DESC LIMIT 30', (str(agent_id),)).fetchall()]
+
+    def agent_for_extension(self, extension):
+        if not self.postgres or not extension: return None
+        row = self.execute('SELECT id FROM ominicontacto_app_agenteprofile WHERE sip_extension=? AND is_inactive=false AND borrado=false LIMIT 1', (str(extension),)).fetchone()
+        return row['id'] if row else None
 
     def recent_audit(self, limit=30):
         return [dict(row) for row in self.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT ?', (limit,)).fetchall()]
@@ -273,6 +280,8 @@ def application(config=None):
         try:
             if path == '/v1/sync' and method == 'POST': return respond('200 OK', bridge.sync_contacts())
             if path == '/v1/calls' and method == 'POST': bridge.store.create_call(data); return respond('201 Created', {'workspace_url': '/workspace?call_id=' + data['call_id']})
+            if path == '/v1/telephony-events' and method == 'POST':
+                bridge.store.create_call(data); bridge.store.audit('telephony_event', data['call_id'], {'node_id': data.get('node_id'), 'event': data.get('event')}); return respond('201 Created', {'accepted': True})
             if path == '/v1/agent/calls' and method == 'GET':
                 if not session: return respond('401 Unauthorized', {'error': 'unauthorized'})
                 return respond('200 OK', {'calls': bridge.store.agent_calls(session['agent_id'])})

@@ -802,6 +802,26 @@ services:
     restart: on-failure
     logging: *default-logging
 
+  # One instance per voice node in HA (Ansible deploys the same image locally
+  # on every omnileads_voice host). It never owns state; PostgreSQL is shared.
+  crm-bridge-ami:
+    image: tekomi/crm-bridge:local
+    command: python /app/ami_collector.py
+    environment:
+      ASTERISK_HOSTNAME: ${ACD_HOSTNAME}
+      AMI_USER: ${ACD_AMI_USER}
+      AMI_PASSWORD: ${ACD_AMI_PASSWORD}
+      BRIDGE_URL: http://crm-bridge:8080
+      BRIDGE_API_KEY: ${CRM_BRIDGE_API_KEY}
+      PBX_NODE_ID: ${PBX_NODE_ID:-aio-1}
+    depends_on:
+      crm-bridge:
+        condition: service_started
+    networks:
+      - omnileads
+    restart: on-failure
+    logging: *default-logging
+
   # ----------------------------------------------------------------------------
   # DIALER SERVICES
   # ----------------------------------------------------------------------------
