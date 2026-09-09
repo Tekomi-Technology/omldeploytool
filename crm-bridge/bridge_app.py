@@ -5,6 +5,7 @@ import json
 import os
 import sqlite3
 import time
+import base64
 from datetime import datetime, timezone
 from urllib.parse import parse_qs
 import requests
@@ -80,6 +81,9 @@ class Store:
 
     def get_call(self, call_id):
         return self.db.execute('SELECT * FROM calls WHERE call_id=?', (call_id,)).fetchone()
+
+    def agent_calls(self, agent_id):
+        return [dict(row) for row in self.db.execute('SELECT call_id,phone,campaign_id,created_at,crm_customer_id FROM calls WHERE agent_id=? ORDER BY created_at DESC LIMIT 30', (str(agent_id),)).fetchall()]
 
     def recent_audit(self, limit=30):
         return [dict(row) for row in self.db.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT ?', (limit,)).fetchall()]
@@ -192,7 +196,16 @@ class Bridge:
         self.store.audit('callback_requested', call_id, {'when': data.get('when', ''), 'note': data.get('note', '')})
         return {'saved': True}
 
-WORKSPACE_HTML = '''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tekomi CRM</title><style>body{font:14px system-ui;margin:16px;color:#172033}h2{margin:0 0 12px}.card{background:#f5f7fb;padding:12px;margin:10px 0;border-radius:8px}input,textarea,button{box-sizing:border-box;width:100%;padding:8px;margin:5px 0}button{background:#1565c0;color:white;border:0;border-radius:5px;cursor:pointer}.ok{color:#087f23}.err{color:#b00020}</style><h2>CRM Bridge</h2><div id="info" class="card">Đang tải cuộc gọi…</div><div class="card"><b>Quick Ticket</b><input id="subject" placeholder="Tiêu đề"><textarea id="message" placeholder="Nội dung cần xử lý"></textarea><button onclick="ticket()">Tạo Ticket CRM</button></div><div class="card"><b>Hẹn gọi lại</b><input id="when" type="datetime-local"><textarea id="note" placeholder="Ghi chú callback"></textarea><button onclick="callback()">Lưu hẹn gọi lại</button></div><div id="result"></div><script>const q=new URLSearchParams(location.search),id=q.get('call_id'),access=q.get('access');const h={'X-Bridge-Api-Key':access,'Content-Type':'application/json'};const out=x=>document.querySelector('#result').innerHTML='<p class="'+(x.error?'err':'ok')+'">'+(x.error||x.message||JSON.stringify(x))+'</p>';fetch('/crm-bridge/v1/calls/'+encodeURIComponent(id)+'?access='+encodeURIComponent(access)).then(r=>r.json()).then(x=>{document.querySelector('#info').innerHTML=x.error?'Không có dữ liệu call':`<b>${x.phone||''}</b><br>Agent: ${x.agent_id||''}<br>Campaign: ${x.campaign_id||''}<br>CRM Customer: ${x.crm_customer_id||'chưa map'}`});function ticket(){fetch('/crm-bridge/v1/calls/'+id+'/tickets',{method:'POST',headers:h,body:JSON.stringify({request_id:crypto.randomUUID(),subject:subject.value,message:message.value,department:1})}).then(r=>r.json()).then(x=>out(x.ticket_id?{message:'Đã tạo Ticket #'+x.ticket_id}:x))}function callback(){fetch('/crm-bridge/v1/calls/'+id+'/callbacks',{method:'POST',headers:h,body:JSON.stringify({when:when.value,note:note.value})}).then(r=>r.json()).then(x=>out(x.saved?{message:'Đã lưu callback'}:x))}</script>'''
+    def session(self, token):
+        try:
+            encoded, signature = token.split('.', 1); raw = base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4))
+            expected = hmac.new(self.config['SHARED_SECRET'].encode(), raw, hashlib.sha256).hexdigest()
+            agent_id, extension, stamp = raw.decode().split(':')
+            if not hmac.compare_digest(expected, signature) or time.time() - int(stamp) > 300: return None
+            return {'agent_id': agent_id, 'extension': extension}
+        except Exception: return None
+
+WORKSPACE_HTML = '''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tekomi CRM</title><style>body{font:14px system-ui;margin:16px}.card{background:#f5f7fb;padding:10px;margin:8px 0;border-radius:7px}input,textarea,button,select{box-sizing:border-box;width:100%;padding:7px;margin:4px 0}button{background:#1565c0;color:#fff;border:0;border-radius:4px}.err{color:#b00020}</style><h3>CRM Bridge</h3><select id="calls"></select><div id="info" class="card">Chọn cuộc gọi</div><div class="card"><b>Quick Ticket</b><input id="subject" placeholder="Tiêu đề"><textarea id="message" placeholder="Nội dung"></textarea><button onclick="ticket()">Tạo Ticket CRM</button></div><div class="card"><b>Callback</b><input id="when" type="datetime-local"><textarea id="note" placeholder="Ghi chú"></textarea><button onclick="callback()">Lưu Callback</button></div><div id="result"></div><script>const q=new URLSearchParams(location.search),s=q.get('session');let id;const api=(p,o={})=>fetch('/crm-bridge/'+p+(p.includes('?')?'&':'?')+'session='+encodeURIComponent(s),o).then(r=>r.json());const out=x=>result.innerHTML='<p class="'+(x.error?'err':'')+'">'+(x.error||x.message||JSON.stringify(x))+'</p>';api('v1/agent/calls').then(x=>{(x.calls||[]).forEach(c=>calls.add(new Option(c.phone+' · '+c.created_at,c.call_id)));calls.onchange=load;load()});function load(){id=calls.value;if(!id)return;api('v1/calls/'+id).then(x=>info.innerHTML=x.error?x.error:`<b>${x.phone}</b><br>Campaign: ${x.campaign_id||'-'}<br>CRM Customer: ${x.crm_customer_id||'chưa map'}`)}function ticket(){api('v1/calls/'+id+'/tickets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:crypto.randomUUID(),subject:subject.value,message:message.value,department:1})}).then(x=>out(x.ticket_id?{message:'Đã tạo Ticket #'+x.ticket_id}:x))}function callback(){api('v1/calls/'+id+'/callbacks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({when:when.value,note:note.value})}).then(x=>out(x.saved?{message:'Đã lưu callback'}:x))}</script>'''
 
 
 def application(config=None):
@@ -203,17 +216,31 @@ def application(config=None):
         def respond(status, body, content='application/json'):
             raw = json.dumps(body).encode() if content == 'application/json' else body.encode(); start_response(status, [('Content-Type', content), ('Content-Length', str(len(raw)))]); return [raw]
         if path == '/health': return respond('200 OK', {'ok': True})
-        if path == '/workspace' and method == 'GET': return respond('200 OK', WORKSPACE_HTML, 'text/html; charset=utf-8')
-        if method == 'POST' and environ.get('HTTP_X_BRIDGE_API_KEY') != config['BRIDGE_API_KEY']: return respond('401 Unauthorized', {'error': 'unauthorized'})
+        session = bridge.session(query.get('session', [''])[0])
+        if path == '/workspace' and method == 'GET':
+            if not session: return respond('401 Unauthorized', 'Unauthorized', 'text/plain')
+            return respond('200 OK', WORKSPACE_HTML, 'text/html; charset=utf-8')
+        if method == 'POST' and environ.get('HTTP_X_BRIDGE_API_KEY') != config['BRIDGE_API_KEY'] and not session: return respond('401 Unauthorized', {'error': 'unauthorized'})
         length = int(environ.get('CONTENT_LENGTH') or 0); data = json.loads(environ['wsgi.input'].read(length) or b'{}') if length else {}
         try:
             if path == '/v1/sync' and method == 'POST': return respond('200 OK', bridge.sync_contacts())
             if path == '/v1/calls' and method == 'POST': bridge.store.create_call(data); return respond('201 Created', {'workspace_url': '/workspace?call_id=' + data['call_id']})
+            if path == '/v1/agent/calls' and method == 'GET':
+                if not session: return respond('401 Unauthorized', {'error': 'unauthorized'})
+                return respond('200 OK', {'calls': bridge.store.agent_calls(session['agent_id'])})
             if path.startswith('/v1/calls/') and method == 'GET':
-                if environ.get('HTTP_X_BRIDGE_API_KEY') != config['BRIDGE_API_KEY'] and query.get('access', [''])[0] != config['BRIDGE_API_KEY']: return respond('401 Unauthorized', {'error': 'unauthorized'})
-                call = bridge.workspace(path.split('/')[3]); return respond('200 OK', call or {'error': 'not found'})
-            if path.startswith('/v1/calls/') and path.endswith('/tickets') and method == 'POST': return respond('201 Created', bridge.create_ticket(path.split('/')[3], data['request_id'], data))
-            if path.startswith('/v1/calls/') and path.endswith('/callbacks') and method == 'POST': return respond('201 Created', bridge.callback(path.split('/')[3], data))
+                if not session and environ.get('HTTP_X_BRIDGE_API_KEY') != config['BRIDGE_API_KEY']: return respond('401 Unauthorized', {'error': 'unauthorized'})
+                call = bridge.workspace(path.split('/')[3])
+                if session and call and str(call['agent_id']) != session['agent_id']: return respond('403 Forbidden', {'error': 'forbidden'})
+                return respond('200 OK', call or {'error': 'not found'})
+            if path.startswith('/v1/calls/') and path.endswith('/tickets') and method == 'POST':
+                call = bridge.workspace(path.split('/')[3])
+                if session and (not call or str(call['agent_id']) != session['agent_id']): return respond('403 Forbidden', {'error': 'forbidden'})
+                return respond('201 Created', bridge.create_ticket(path.split('/')[3], data['request_id'], data))
+            if path.startswith('/v1/calls/') and path.endswith('/callbacks') and method == 'POST':
+                call = bridge.workspace(path.split('/')[3])
+                if session and (not call or str(call['agent_id']) != session['agent_id']): return respond('403 Forbidden', {'error': 'forbidden'})
+                return respond('201 Created', bridge.callback(path.split('/')[3], data))
             return respond('404 Not Found', {'error': 'not found'})
         except ValueError as error: return respond('422 Unprocessable Entity', {'error': str(error)})
         except requests.RequestException: return respond('502 Bad Gateway', {'error': 'CRM or OmniLeads unavailable'})
