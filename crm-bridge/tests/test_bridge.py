@@ -4,7 +4,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from bridge_app import Bridge, Store
+from bridge_app import Bridge, Store, department_mapping
 from bridge_app import CrmClient
 
 
@@ -62,5 +62,11 @@ class BridgeTests(unittest.TestCase):
         client._request('get', '/customers')
         client._request('get', '/contacts')
         self.assertEqual(sleeps, [1.3])
+
+    def test_department_mapping_accepts_json_and_legacy_deployment_value(self):
+        self.assertEqual(department_mapping('{"default": 1}'), {'default': 1})
+        self.assertEqual(department_mapping("{'default': 1}"), {'default': 1})
+        with self.assertRaises(ValueError):
+            department_mapping('[1]')
 
 if __name__ == '__main__': unittest.main()

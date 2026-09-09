@@ -1,4 +1,5 @@
 """Standalone, dependency-light CRM bridge for OmniLeads and Perfex-style CRM."""
+import ast
 import hashlib
 import hmac
 import json
@@ -15,6 +16,24 @@ from wsgiref.simple_server import make_server
 
 def now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def department_mapping(value):
+    """Read a deployment mapping written as JSON or as a legacy Python dict.
+
+    Older compose env files in this installation contain ``{'default': 1}``.
+    Environment data is deployment-owned, nevertheless ``literal_eval`` keeps
+    the compatibility path data-only and never evaluates code.
+    """
+    if not value:
+        return {}
+    try:
+        mapping = json.loads(value)
+    except json.JSONDecodeError:
+        mapping = ast.literal_eval(value)
+    if not isinstance(mapping, dict):
+        raise ValueError("BRIDGE_QUEUE_DEPARTMENTS must be an object")
+    return {str(key): item for key, item in mapping.items()}
 
 
 class Store:
@@ -262,7 +281,7 @@ WORKSPACE_HTML = '''<!doctype html><meta charset="utf-8"><meta name="viewport" c
 
 
 def application(config=None):
-    config = config or {'DB_PATH': os.getenv('BRIDGE_DATABASE_URL', os.getenv('BRIDGE_DB_PATH', 'bridge.sqlite3')), 'CRM_BASE_URL': os.environ['CRM_BASE_URL'], 'CRM_API_TOKEN': os.environ['CRM_API_TOKEN'], 'OML_SYNC_URL': os.environ['OML_SYNC_URL'], 'BRIDGE_API_KEY': os.environ['BRIDGE_API_KEY'], 'SHARED_SECRET': os.environ['BRIDGE_SHARED_SECRET'], 'QUEUE_DEPARTMENTS': json.loads(os.getenv('BRIDGE_QUEUE_DEPARTMENTS', '{}')), 'CRM_REQUEST_INTERVAL_SECONDS': float(os.getenv('CRM_REQUEST_INTERVAL_SECONDS', '1.5'))}
+    config = config or {'DB_PATH': os.getenv('BRIDGE_DATABASE_URL', os.getenv('BRIDGE_DB_PATH', 'bridge.sqlite3')), 'CRM_BASE_URL': os.environ['CRM_BASE_URL'], 'CRM_API_TOKEN': os.environ['CRM_API_TOKEN'], 'OML_SYNC_URL': os.environ['OML_SYNC_URL'], 'BRIDGE_API_KEY': os.environ['BRIDGE_API_KEY'], 'SHARED_SECRET': os.environ['BRIDGE_SHARED_SECRET'], 'QUEUE_DEPARTMENTS': department_mapping(os.getenv('BRIDGE_QUEUE_DEPARTMENTS', '{}')), 'CRM_REQUEST_INTERVAL_SECONDS': float(os.getenv('CRM_REQUEST_INTERVAL_SECONDS', '1.5'))}
     bridge = Bridge(config)
     if bridge.store.postgres:
         threading.Thread(target=bridge.run_call_log_consumer, daemon=True).start()
