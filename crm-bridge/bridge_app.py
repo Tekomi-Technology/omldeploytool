@@ -81,6 +81,9 @@ class Store:
     def get_call(self, call_id):
         return self.db.execute('SELECT * FROM calls WHERE call_id=?', (call_id,)).fetchone()
 
+    def recent_audit(self, limit=30):
+        return [dict(row) for row in self.db.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT ?', (limit,)).fetchall()]
+
 
 def normalize_phone(value):
     value = ''.join(char for char in str(value) if char.isdigit() or char == '+')
@@ -177,6 +180,20 @@ class Bridge:
         self.store.audit('ticket_created', call_id, {'ticket_id': ticket, 'request_id': request_id})
         return {'ticket_id': ticket, 'replayed': False}
 
+    def workspace(self, call_id):
+        call = self.store.get_call(call_id)
+        if not call: return None
+        data = dict(call); data['payload'] = json.loads(data['payload'])
+        return data
+
+    def callback(self, call_id, data):
+        call = self.store.get_call(call_id)
+        if not call: raise ValueError('Unknown call')
+        self.store.audit('callback_requested', call_id, {'when': data.get('when', ''), 'note': data.get('note', '')})
+        return {'saved': True}
+
+WORKSPACE_HTML = '''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tekomi CRM</title><style>body{font:14px system-ui;margin:16px;color:#172033}h2{margin:0 0 12px}.card{background:#f5f7fb;padding:12px;margin:10px 0;border-radius:8px}input,textarea,button{box-sizing:border-box;width:100%;padding:8px;margin:5px 0}button{background:#1565c0;color:white;border:0;border-radius:5px;cursor:pointer}.ok{color:#087f23}.err{color:#b00020}</style><h2>CRM Bridge</h2><div id="info" class="card">Đang tải cuộc gọi…</div><div class="card"><b>Quick Ticket</b><input id="subject" placeholder="Tiêu đề"><textarea id="message" placeholder="Nội dung cần xử lý"></textarea><button onclick="ticket()">Tạo Ticket CRM</button></div><div class="card"><b>Hẹn gọi lại</b><input id="when" type="datetime-local"><textarea id="note" placeholder="Ghi chú callback"></textarea><button onclick="callback()">Lưu hẹn gọi lại</button></div><div id="result"></div><script>const q=new URLSearchParams(location.search),id=q.get('call_id'),access=q.get('access');const h={'X-Bridge-Api-Key':access,'Content-Type':'application/json'};const out=x=>document.querySelector('#result').innerHTML='<p class="'+(x.error?'err':'ok')+'">'+(x.error||x.message||JSON.stringify(x))+'</p>';fetch('/crm-bridge/v1/calls/'+encodeURIComponent(id)+'?access='+encodeURIComponent(access)).then(r=>r.json()).then(x=>{document.querySelector('#info').innerHTML=x.error?'Không có dữ liệu call':`<b>${x.phone||''}</b><br>Agent: ${x.agent_id||''}<br>Campaign: ${x.campaign_id||''}<br>CRM Customer: ${x.crm_customer_id||'chưa map'}`});function ticket(){fetch('/crm-bridge/v1/calls/'+id+'/tickets',{method:'POST',headers:h,body:JSON.stringify({request_id:crypto.randomUUID(),subject:subject.value,message:message.value,department:1})}).then(r=>r.json()).then(x=>out(x.ticket_id?{message:'Đã tạo Ticket #'+x.ticket_id}:x))}function callback(){fetch('/crm-bridge/v1/calls/'+id+'/callbacks',{method:'POST',headers:h,body:JSON.stringify({when:when.value,note:note.value})}).then(r=>r.json()).then(x=>out(x.saved?{message:'Đã lưu callback'}:x))}</script>'''
+
 
 def application(config=None):
     config = config or {'DB_PATH': os.getenv('BRIDGE_DB_PATH', 'bridge.sqlite3'), 'CRM_BASE_URL': os.environ['CRM_BASE_URL'], 'CRM_API_TOKEN': os.environ['CRM_API_TOKEN'], 'OML_SYNC_URL': os.environ['OML_SYNC_URL'], 'BRIDGE_API_KEY': os.environ['BRIDGE_API_KEY'], 'SHARED_SECRET': os.environ['BRIDGE_SHARED_SECRET'], 'QUEUE_DEPARTMENTS': json.loads(os.getenv('BRIDGE_QUEUE_DEPARTMENTS', '{}')), 'CRM_REQUEST_INTERVAL_SECONDS': float(os.getenv('CRM_REQUEST_INTERVAL_SECONDS', '1.5'))}
@@ -186,13 +203,17 @@ def application(config=None):
         def respond(status, body, content='application/json'):
             raw = json.dumps(body).encode() if content == 'application/json' else body.encode(); start_response(status, [('Content-Type', content), ('Content-Length', str(len(raw)))]); return [raw]
         if path == '/health': return respond('200 OK', {'ok': True})
+        if path == '/workspace' and method == 'GET': return respond('200 OK', WORKSPACE_HTML, 'text/html; charset=utf-8')
         if method == 'POST' and environ.get('HTTP_X_BRIDGE_API_KEY') != config['BRIDGE_API_KEY']: return respond('401 Unauthorized', {'error': 'unauthorized'})
         length = int(environ.get('CONTENT_LENGTH') or 0); data = json.loads(environ['wsgi.input'].read(length) or b'{}') if length else {}
         try:
             if path == '/v1/sync' and method == 'POST': return respond('200 OK', bridge.sync_contacts())
             if path == '/v1/calls' and method == 'POST': bridge.store.create_call(data); return respond('201 Created', {'workspace_url': '/workspace?call_id=' + data['call_id']})
+            if path.startswith('/v1/calls/') and method == 'GET':
+                if environ.get('HTTP_X_BRIDGE_API_KEY') != config['BRIDGE_API_KEY'] and query.get('access', [''])[0] != config['BRIDGE_API_KEY']: return respond('401 Unauthorized', {'error': 'unauthorized'})
+                call = bridge.workspace(path.split('/')[3]); return respond('200 OK', call or {'error': 'not found'})
             if path.startswith('/v1/calls/') and path.endswith('/tickets') and method == 'POST': return respond('201 Created', bridge.create_ticket(path.split('/')[3], data['request_id'], data))
-            if path == '/workspace': return respond('200 OK', '<h1>CRM Bridge</h1><p>Call: ' + query.get('call_id', [''])[0] + '</p>', 'text/html')
+            if path.startswith('/v1/calls/') and path.endswith('/callbacks') and method == 'POST': return respond('201 Created', bridge.callback(path.split('/')[3], data))
             return respond('404 Not Found', {'error': 'not found'})
         except ValueError as error: return respond('422 Unprocessable Entity', {'error': str(error)})
         except requests.RequestException: return respond('502 Bad Gateway', {'error': 'CRM or OmniLeads unavailable'})
