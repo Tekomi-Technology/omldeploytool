@@ -18,6 +18,16 @@ def now():
 
 class Store:
     def __init__(self, path):
+        self.postgres = path.startswith('postgresql://')
+        if self.postgres:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            self.db = psycopg2.connect(path, cursor_factory=RealDictCursor)
+            self.db.autocommit = False
+            self.db.cursor().execute('CREATE SCHEMA IF NOT EXISTS tekomi_crm_bridge')
+            self.db.cursor().execute('''CREATE TABLE IF NOT EXISTS tekomi_crm_bridge.crm_contacts (external_id TEXT PRIMARY KEY, crm_customer_id TEXT NOT NULL, crm_contact_id TEXT, phone TEXT NOT NULL, payload TEXT NOT NULL, payload_hash TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tekomi_crm_bridge.calls (call_id TEXT PRIMARY KEY, agent_id TEXT, phone TEXT, campaign_id TEXT, crm_customer_id TEXT, crm_contact_id TEXT, payload TEXT NOT NULL, created_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tekomi_crm_bridge.ticket_requests (request_id TEXT PRIMARY KEY, call_id TEXT NOT NULL, crm_ticket_id TEXT, state TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tekomi_crm_bridge.audit_log (id BIGSERIAL PRIMARY KEY, action TEXT NOT NULL, subject TEXT NOT NULL, details TEXT NOT NULL, created_at TEXT NOT NULL);''')
+            self.db.commit()
+            return
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript('''
@@ -37,8 +47,15 @@ class Store:
         ''')
         self.db.commit()
 
+    def execute(self, query, params=()):
+        if self.postgres:
+            query = query.replace('?', '%s').replace('INSERT OR IGNORE', 'INSERT').replace('ON CONFLICT(request_id) DO NOTHING', 'ON CONFLICT(request_id) DO NOTHING')
+            query = query.replace('crm_contacts', 'tekomi_crm_bridge.crm_contacts').replace('ticket_requests', 'tekomi_crm_bridge.ticket_requests').replace('audit_log', 'tekomi_crm_bridge.audit_log').replace(' calls', ' tekomi_crm_bridge.calls').replace('INTO calls', 'INTO tekomi_crm_bridge.calls')
+            cursor = self.db.cursor(); cursor.execute(query, params); return cursor
+        return self.db.execute(query, params)
+
     def audit(self, action, subject, details):
-        self.db.execute('INSERT INTO audit_log(action,subject,details,created_at) VALUES(?,?,?,?)',
+        self.execute('INSERT INTO audit_log(action,subject,details,created_at) VALUES(?,?,?,?)',
                         (action, subject, json.dumps(details, sort_keys=True), now()))
         self.db.commit()
 
@@ -47,11 +64,11 @@ class Store:
         for contact in contacts:
             encoded = json.dumps(contact, sort_keys=True, separators=(',', ':'))
             digest = hashlib.sha256(encoded.encode()).hexdigest()
-            old = self.db.execute('SELECT payload_hash FROM crm_contacts WHERE external_id=?',
+            old = self.execute('SELECT payload_hash FROM crm_contacts WHERE external_id=?',
                                   (contact['external_id'],)).fetchone()
             if old and old['payload_hash'] == digest:
                 continue
-            self.db.execute('''INSERT INTO crm_contacts(external_id,crm_customer_id,crm_contact_id,phone,payload,payload_hash,updated_at)
+            self.execute('''INSERT INTO crm_contacts(external_id,crm_customer_id,crm_contact_id,phone,payload,payload_hash,updated_at)
               VALUES(?,?,?,?,?,?,?) ON CONFLICT(external_id) DO UPDATE SET
               crm_customer_id=excluded.crm_customer_id,crm_contact_id=excluded.crm_contact_id,
               phone=excluded.phone,payload=excluded.payload,payload_hash=excluded.payload_hash,updated_at=excluded.updated_at''',
@@ -62,7 +79,7 @@ class Store:
 
     def find_contact(self, phone):
         normalized = normalize_phone(phone)
-        rows = self.db.execute('SELECT * FROM crm_contacts').fetchall()
+        rows = self.execute('SELECT * FROM crm_contacts').fetchall()
         for row in rows:
             if normalize_phone(row['phone']) == normalized:
                 return json.loads(row['payload'])
@@ -70,7 +87,7 @@ class Store:
 
     def create_call(self, data):
         contact = self.find_contact(data.get('phone', ''))
-        self.db.execute('''INSERT INTO calls(call_id,agent_id,phone,campaign_id,crm_customer_id,crm_contact_id,payload,created_at)
+        self.execute('''INSERT INTO calls(call_id,agent_id,phone,campaign_id,crm_customer_id,crm_contact_id,payload,created_at)
           VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(call_id) DO UPDATE SET payload=excluded.payload''',
           (data['call_id'], str(data.get('agent_id', '')), data.get('phone', ''), str(data.get('campaign_id', '')),
            str(contact['crm_customer_id']) if contact else None, contact.get('crm_contact_id') if contact else None,
@@ -80,13 +97,13 @@ class Store:
         return contact
 
     def get_call(self, call_id):
-        return self.db.execute('SELECT * FROM calls WHERE call_id=?', (call_id,)).fetchone()
+        return self.execute('SELECT * FROM calls WHERE call_id=?', (call_id,)).fetchone()
 
     def agent_calls(self, agent_id):
-        return [dict(row) for row in self.db.execute('SELECT call_id,phone,campaign_id,created_at,crm_customer_id FROM calls WHERE agent_id=? ORDER BY created_at DESC LIMIT 30', (str(agent_id),)).fetchall()]
+        return [dict(row) for row in self.execute('SELECT call_id,phone,campaign_id,created_at,crm_customer_id FROM calls WHERE agent_id=? ORDER BY created_at DESC LIMIT 30', (str(agent_id),)).fetchall()]
 
     def recent_audit(self, limit=30):
-        return [dict(row) for row in self.db.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT ?', (limit,)).fetchall()]
+        return [dict(row) for row in self.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT ?', (limit,)).fetchall()]
 
 
 def normalize_phone(value):
@@ -167,7 +184,7 @@ class Bridge:
         self.store.audit('crm_sync', 'contacts', {'seen': len(contacts), 'changed': len(changed)})
         return {'seen': len(contacts), 'changed': len(changed)}
     def create_ticket(self, call_id, request_id, data):
-        existing = self.store.db.execute('SELECT * FROM ticket_requests WHERE request_id=?', (request_id,)).fetchone()
+        existing = self.store.execute('SELECT * FROM ticket_requests WHERE request_id=?', (request_id,)).fetchone()
         if existing and existing['crm_ticket_id']: return {'ticket_id': existing['crm_ticket_id'], 'replayed': True}
         call = self.store.get_call(call_id)
         if not call or not call['crm_customer_id']: raise ValueError('Caller is not mapped to a CRM customer')
@@ -177,10 +194,10 @@ class Bridge:
                    'department': department, 'userid': int(call['crm_customer_id'])}
         if call['crm_contact_id']: payload['contactid'] = int(call['crm_contact_id'])
         if data.get('priority') is not None: payload['priority'] = data['priority']
-        self.store.db.execute('INSERT OR IGNORE INTO ticket_requests(request_id,call_id,state,payload,created_at,updated_at) VALUES(?,?,?,?,?,?)',
+        self.store.execute('INSERT INTO ticket_requests(request_id,call_id,state,payload,created_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(request_id) DO NOTHING',
                               (request_id, call_id, 'pending', json.dumps(payload), now(), now())); self.store.db.commit()
         response = self.crm.create_ticket(payload); ticket = response.get('data', response).get('ticketid', response.get('data', response).get('id'))
-        self.store.db.execute('UPDATE ticket_requests SET crm_ticket_id=?,state=?,updated_at=? WHERE request_id=?', (str(ticket), 'created', now(), request_id)); self.store.db.commit()
+        self.store.execute('UPDATE ticket_requests SET crm_ticket_id=?,state=?,updated_at=? WHERE request_id=?', (str(ticket), 'created', now(), request_id)); self.store.db.commit()
         self.store.audit('ticket_created', call_id, {'ticket_id': ticket, 'request_id': request_id})
         return {'ticket_id': ticket, 'replayed': False}
 
@@ -209,7 +226,7 @@ WORKSPACE_HTML = '''<!doctype html><meta charset="utf-8"><meta name="viewport" c
 
 
 def application(config=None):
-    config = config or {'DB_PATH': os.getenv('BRIDGE_DB_PATH', 'bridge.sqlite3'), 'CRM_BASE_URL': os.environ['CRM_BASE_URL'], 'CRM_API_TOKEN': os.environ['CRM_API_TOKEN'], 'OML_SYNC_URL': os.environ['OML_SYNC_URL'], 'BRIDGE_API_KEY': os.environ['BRIDGE_API_KEY'], 'SHARED_SECRET': os.environ['BRIDGE_SHARED_SECRET'], 'QUEUE_DEPARTMENTS': json.loads(os.getenv('BRIDGE_QUEUE_DEPARTMENTS', '{}')), 'CRM_REQUEST_INTERVAL_SECONDS': float(os.getenv('CRM_REQUEST_INTERVAL_SECONDS', '1.5'))}
+    config = config or {'DB_PATH': os.getenv('BRIDGE_DATABASE_URL', os.getenv('BRIDGE_DB_PATH', 'bridge.sqlite3')), 'CRM_BASE_URL': os.environ['CRM_BASE_URL'], 'CRM_API_TOKEN': os.environ['CRM_API_TOKEN'], 'OML_SYNC_URL': os.environ['OML_SYNC_URL'], 'BRIDGE_API_KEY': os.environ['BRIDGE_API_KEY'], 'SHARED_SECRET': os.environ['BRIDGE_SHARED_SECRET'], 'QUEUE_DEPARTMENTS': json.loads(os.getenv('BRIDGE_QUEUE_DEPARTMENTS', '{}')), 'CRM_REQUEST_INTERVAL_SECONDS': float(os.getenv('CRM_REQUEST_INTERVAL_SECONDS', '1.5'))}
     bridge = Bridge(config)
     def app(environ, start_response):
         path, method = environ['PATH_INFO'], environ['REQUEST_METHOD']; query = parse_qs(environ.get('QUERY_STRING', ''))

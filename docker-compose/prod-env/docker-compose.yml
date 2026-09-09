@@ -782,7 +782,9 @@ services:
     image: tekomi/crm-bridge:local
     environment:
       PORT: "8080"
-      BRIDGE_DB_PATH: /var/lib/crm-bridge/bridge.sqlite3
+      # In HA this hostname is the OmniLeads PostgreSQL RW VIP.  Bridge state
+      # never lives on a local container volume.
+      BRIDGE_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOSTNAME}:${POSTGRES_PORT}/${POSTGRES_DB}
       CRM_BASE_URL: ${CRM_BASE_URL}
       CRM_API_TOKEN: ${CRM_API_TOKEN}
       CRM_REQUEST_INTERVAL_SECONDS: ${CRM_REQUEST_INTERVAL_SECONDS:-1.5}
@@ -790,8 +792,9 @@ services:
       BRIDGE_API_KEY: ${CRM_BRIDGE_API_KEY}
       BRIDGE_SHARED_SECRET: ${CRM_BRIDGE_SHARED_SECRET}
       BRIDGE_QUEUE_DEPARTMENTS: ${CRM_BRIDGE_QUEUE_DEPARTMENTS}
-    volumes:
-      - crm_bridge_data:/var/lib/crm-bridge
+    depends_on:
+      postgresql:
+        condition: service_healthy
     ports:
       - "127.0.0.1:18080:8080"
     networks:
