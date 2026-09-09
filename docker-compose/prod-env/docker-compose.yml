@@ -635,7 +635,11 @@ services:
       # Tekomi: public IP for the device UDP socket (softphone/IPPhone).
       # Defaults to OML_HOSTNAME; override if Kamailio must bind elsewhere.
       KAMAILIO_PUBLIC_IP: ${KAMAILIO_PUBLIC_IP:-${OML_HOSTNAME}}
-      REDIS_HOSTNAME: ${REDIS_HOSTNAME}
+      # Kamailio is deliberately on host networking. In AIO it must reach the
+      # Redis port published on the same host, not loop back through the
+      # public address (that route is commonly rejected by VPS firewalls).
+      # HA installations override this with their Redis service/VIP.
+      REDIS_HOSTNAME: ${KAMAILIO_REDIS_HOSTNAME:-127.0.0.1}
       RTPENGINE_HOSTNAME: ${RTPENGINE_HOSTNAME}
       SHM_SIZE: ${SHM_SIZE}
       PKG_SIZE: ${PKG_SIZE}
